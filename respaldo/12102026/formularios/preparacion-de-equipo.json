@@ -1,0 +1,351 @@
+{
+    "titulo": "Preparación de Equipo",
+    "subtitulo": "para Usuario Final",
+    "descripcion": "Marque cada punto conforme se complete. En cada etapa puede modificar el texto de un punto, eliminarlo con ✕ o agregar uno nuevo con «+ Agregar punto». Los puntos que indican un departamento entre paréntesis solo aplican a ese departamento.",
+    "publicado": true,
+    "numeracion": true,
+    "secciones": [
+        {
+            "id": "sgen",
+            "titulo": "Información general",
+            "campos": [
+                {
+                    "id": "cfecha",
+                    "tipo": "fecha",
+                    "etiqueta": "Fecha",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "fecha"
+                },
+                {
+                    "id": "ctec",
+                    "tipo": "texto",
+                    "etiqueta": "Técnico responsable",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": ""
+                },
+                {
+                    "id": "cusu",
+                    "tipo": "texto",
+                    "etiqueta": "Usuario final (nombre completo)",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": ""
+                },
+                {
+                    "id": "cdep",
+                    "tipo": "texto",
+                    "etiqueta": "Departamento",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": ""
+                },
+                {
+                    "id": "chost",
+                    "tipo": "texto",
+                    "etiqueta": "Hostname del equipo",
+                    "requerido": true,
+                    "ayuda": "Único, no se debe repetir (USUARIO#).",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": ""
+                },
+                {
+                    "id": "ctipo",
+                    "tipo": "unica",
+                    "etiqueta": "Tipo de equipo",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "opciones": [
+                        "All in One",
+                        "Laptop",
+                        "Tablet",
+                        "Escritorio"
+                    ]
+                },
+                {
+                    "id": "cserie",
+                    "tipo": "texto",
+                    "etiqueta": "Serie",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": ""
+                },
+                {
+                    "id": "cactivo",
+                    "tipo": "texto",
+                    "etiqueta": "N.° de activo",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": ""
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "scta",
+            "titulo": "Cuentas de usuario y correo",
+            "campos": [
+                {
+                    "id": "c1",
+                    "tipo": "checklist",
+                    "etiqueta": "Puntos a verificar",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "Crear usuario en el dominio (con contraseña temporal)",
+                        "Ingresar MAC en Firewall",
+                        "Creación del correo electrónico institucional",
+                        "Firma del correo electrónico institucional configurada",
+                        "Correo electrónico incluido en la lista de comunicacion@municarrillo.go.cr",
+                        "Correo electrónico incluido en las listas de correos de su departamento",
+                        "Crear usuario en ALFRESCO"
+                    ],
+                    "editable": true
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "sso",
+            "titulo": "Sistema operativo, dominio y administración",
+            "campos": [
+                {
+                    "id": "c2",
+                    "tipo": "checklist",
+                    "etiqueta": "Puntos a verificar",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "Hostname del equipo (único, no se debe repetir) (USUARIO#)",
+                        "Licencia de Windows registrada y activada",
+                        "Sistema operativo actualizado",
+                        "Unir equipo al dominio",
+                        "DNS configurados en modo automático",
+                        "GPO cargadas correctamente (gpupdate /force)",
+                        "Equipo administrado con ManageEngine Endpoint Central",
+                        "Agregar al Custom Group asignado en ManageEngine Endpoint Central",
+                        "Eliminar agente de InvGate",
+                        "Eliminar 7-Zip (laptops)",
+                        "Usuario administrador local correcto con contraseña",
+                        "Usuario final no es administrador",
+                        "Ingresar con el usuario administrador (con contraseña temporal)",
+                        "Usuario incluido en los inventarios"
+                    ],
+                    "editable": true
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "simp",
+            "titulo": "Impresoras",
+            "campos": [
+                {
+                    "id": "c3",
+                    "tipo": "checklist",
+                    "etiqueta": "Puntos a verificar",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "Drivers de Kyocera instalados",
+                        "Impresora de cola virtual configurada",
+                        "Configuración de impresión definida en tamaño Carta",
+                        "Driver impresora de carnés - DataCard CD800 (RRHH)",
+                        "Driver impresora de etiquetas - Brother GL-800 (CONTRATACIÓN ADMINISTRATIVA)",
+                        "Driver impresora POS - EPSON QL800 (PLATAFORMA)",
+                        "Driver KODAK 2080 (ARCHIVO)",
+                        "Driver KODAK L4250 (ARCHIVO)"
+                    ],
+                    "editable": true
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "ssw",
+            "titulo": "Software institucional",
+            "campos": [
+                {
+                    "id": "c4",
+                    "tipo": "checklist",
+                    "etiqueta": "Puntos a verificar",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "Google Chrome administrado con Workspace",
+                        "Firefox desinstalado",
+                        "Amazon Corretto 8",
+                        "Driver Firma Digital Idopte (>= 6.23.44.0)",
+                        "Agente GAUDI en el escritorio",
+                        "Componente Firma Digital (>= 3.0.18)",
+                        "Firmador Libre (>= 1.9.8)",
+                        "Firmador Libre enlazado en el Escritorio y en el menú de Programas",
+                        "Firmador Libre con aspecto institucional",
+                        "Componente Abaqo ALFRESCO",
+                        "Agente WAZUH instalado",
+                        "IZArc instalado",
+                        "Microsoft Teams instalado",
+                        "Zoom Workplace instalado",
+                        "Eshare instalado",
+                        "Microsoft Office 365 instalado y licenciado",
+                        "ProjectLibre instalado",
+                        "FortiClient instalado, activado y funcionalidades completas",
+                        "Adobe Acrobat Reader instalado",
+                        "PDF Arranger instalado"
+                    ],
+                    "editable": true
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "sdep",
+            "titulo": "Software por departamento",
+            "campos": [
+                {
+                    "id": "c5",
+                    "tipo": "checklist",
+                    "etiqueta": "Puntos a verificar",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "Adobe Acrobat Pro (CONSTRUCCIONES, OBRAS, SECRETARÍA CONCEJO y CATASTRO)",
+                        "QGIS instalado y usuario creado en BD (CATASTRO y CONSTRUCCIONES)",
+                        "Google Earth (CATASTRO)",
+                        "ZKTeco Lite (RRHH)",
+                        "Módulo Local BNCR (CONTABILIDAD y TESORERÍA)",
+                        "Autodesk DWG TrueView (UTGV)",
+                        "AutoCAD (UTGV, OBRAS)",
+                        "Lumion (UTGV, OBRAS)",
+                        "pgAdmin 4 (CATASTRO)",
+                        "VALORA Normal (CATASTRO)",
+                        "VALORA Agro (CATASTRO)",
+                        "Cuchara Pentaho (CATASTRO)",
+                        "IrfanView (CATASTRO)"
+                    ],
+                    "editable": true
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "sred",
+            "titulo": "Red y seguridad",
+            "campos": [
+                {
+                    "id": "c6",
+                    "tipo": "checklist",
+                    "etiqueta": "Puntos a verificar",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "IPv4 reservada y configurada en la VLAN final",
+                        "Link Local única",
+                        "IPv6 reservada y configurada en la VLAN final",
+                        "Firewall del equipo activado",
+                        "FortiClient EMS no muestra vulnerabilidades",
+                        "Ejecutar nuevamente gpupdate /force",
+                        "Resolución DNS del equipo correcta (USUARIO.lan.municarrillo.go.cr)",
+                        "Bloqueo de dispositivos USB de almacenamiento aplicado",
+                        "Puertos HDMI y USB funcionan",
+                        "Teléfono IP configurado"
+                    ],
+                    "editable": true
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "sent",
+            "titulo": "Revisión y entrega",
+            "campos": [
+                {
+                    "id": "c7",
+                    "tipo": "checklist",
+                    "etiqueta": "Puntos a verificar",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "Revisión del equipo",
+                        "Coordinar con el usuario la revisión y entrega del equipo",
+                        "Revisión con el usuario final"
+                    ],
+                    "editable": true
+                },
+                {
+                    "id": "cobs",
+                    "tipo": "parrafo",
+                    "etiqueta": "Observaciones (usuario)",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "auto": ""
+                },
+                {
+                    "id": "cfirt",
+                    "tipo": "firma",
+                    "etiqueta": "Firma del técnico responsable",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "con_nombre": true
+                },
+                {
+                    "id": "cfiru",
+                    "tipo": "firma",
+                    "etiqueta": "Firma del usuario final",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "con_nombre": true
+                }
+            ],
+            "cond": null
+        }
+    ],
+    "id": "preparacion-de-equipo",
+    "creado": 1791834876,
+    "autor": "instalador",
+    "modificado": 1791834876,
+    "modificado_por": "instalador",
+    "version": 2
+}

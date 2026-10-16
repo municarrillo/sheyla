@@ -1,0 +1,473 @@
+{
+    "titulo": "Préstamo de Activos",
+    "subtitulo": "Equipo, herramientas y accesorios",
+    "descripcion": "Registro de préstamo temporal de activos del Departamento de TI: proyectores, computadoras, herramientas y accesorios. Complete la entrega y, cuando los activos regresen, abra el mismo registro para anotar la devolución.",
+    "publicado": true,
+    "numeracion": true,
+    "secciones": [
+        {
+            "id": "ssol",
+            "titulo": "Datos del solicitante",
+            "campos": [
+                {
+                    "id": "cfecha",
+                    "tipo": "fecha",
+                    "etiqueta": "Fecha de la solicitud",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "fecha"
+                },
+                {
+                    "id": "cnom",
+                    "tipo": "texto",
+                    "etiqueta": "Nombre completo del solicitante",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": ""
+                },
+                {
+                    "id": "cdep",
+                    "tipo": "texto",
+                    "etiqueta": "Departamento",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": ""
+                },
+                {
+                    "id": "ccar",
+                    "tipo": "texto",
+                    "etiqueta": "Cargo",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": ""
+                },
+                {
+                    "id": "cced",
+                    "tipo": "texto",
+                    "etiqueta": "Cédula",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": "cedula"
+                },
+                {
+                    "id": "ctel",
+                    "tipo": "texto",
+                    "etiqueta": "Extensión o teléfono",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": "telefono"
+                },
+                {
+                    "id": "ccor",
+                    "tipo": "correo",
+                    "etiqueta": "Correo institucional",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "sact",
+            "titulo": "Activos prestados",
+            "campos": [
+                {
+                    "id": "ccat",
+                    "tipo": "multiple",
+                    "etiqueta": "Tipo de activo",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "Proyector",
+                        "Computadora portátil",
+                        "Computadora de escritorio",
+                        "Tablet",
+                        "Herramientas",
+                        "Accesorios",
+                        "Otro"
+                    ]
+                },
+                {
+                    "id": "cotro",
+                    "tipo": "texto",
+                    "etiqueta": "Indique cuál",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": {
+                        "campo": "ccat",
+                        "op": "contiene",
+                        "valor": "Otro"
+                    },
+                    "auto": "",
+                    "formato": ""
+                },
+                {
+                    "id": "cdet",
+                    "tipo": "tabla",
+                    "etiqueta": "Detalle de los activos",
+                    "requerido": true,
+                    "ayuda": "Una fila por activo. En «Accesorios incluidos» anote cables, cargador, control remoto, estuche, etc.",
+                    "ancho": "completo",
+                    "cond": null,
+                    "columnas": [
+                        "Descripción",
+                        "Marca / modelo",
+                        "N.° de serie",
+                        "N.° de activo",
+                        "Accesorios incluidos",
+                        "Estado al entregar"
+                    ],
+                    "filas": 1,
+                    "max_filas": 20,
+                    "numerada": true
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "scon",
+            "titulo": "Condiciones del préstamo",
+            "campos": [
+                {
+                    "id": "cmot",
+                    "tipo": "parrafo",
+                    "etiqueta": "Motivo o actividad para la que se solicita",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "auto": ""
+                },
+                {
+                    "id": "cuso",
+                    "tipo": "unica",
+                    "etiqueta": "Lugar de uso",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "opciones": [
+                        "Dentro de las instalaciones municipales",
+                        "Fuera de las instalaciones municipales"
+                    ]
+                },
+                {
+                    "id": "clug",
+                    "tipo": "texto",
+                    "etiqueta": "Lugar o dirección donde se usará",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "",
+                    "formato": ""
+                },
+                {
+                    "id": "caut",
+                    "tipo": "texto",
+                    "etiqueta": "Jefatura que autoriza la salida",
+                    "requerido": true,
+                    "ayuda": "Requerido cuando el activo sale de las instalaciones.",
+                    "ancho": "medio",
+                    "cond": {
+                        "campo": "cuso",
+                        "op": "igual",
+                        "valor": "Fuera de las instalaciones municipales"
+                    },
+                    "auto": "",
+                    "formato": ""
+                },
+                {
+                    "id": "cfsal",
+                    "tipo": "fecha",
+                    "etiqueta": "Fecha de entrega",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "fecha"
+                },
+                {
+                    "id": "chsal",
+                    "tipo": "hora",
+                    "etiqueta": "Hora de entrega",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "hora"
+                },
+                {
+                    "id": "cfdev",
+                    "tipo": "fecha",
+                    "etiqueta": "Fecha prevista de devolución",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": ""
+                },
+                {
+                    "id": "chdev",
+                    "tipo": "hora",
+                    "etiqueta": "Hora prevista de devolución",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": ""
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "sver",
+            "titulo": "Verificación al entregar",
+            "campos": [
+                {
+                    "id": "cver",
+                    "tipo": "checklist",
+                    "etiqueta": "Puntos a verificar",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "El equipo enciende y funciona correctamente",
+                        "Se revisó el estado físico (golpes, rayones, pantalla o lente)",
+                        "Se entregan cables de poder y cargador",
+                        "Se entregan los accesorios indicados en el detalle",
+                        "Se explicó al solicitante el uso básico y los cuidados del activo",
+                        "El préstamo quedó anotado en el control de inventario de TI"
+                    ],
+                    "editable": true
+                },
+                {
+                    "id": "cobse",
+                    "tipo": "parrafo",
+                    "etiqueta": "Observaciones de la entrega",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "auto": ""
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "ster",
+            "titulo": "Términos y condiciones",
+            "campos": [
+                {
+                    "id": "cterm",
+                    "tipo": "info",
+                    "etiqueta": "Responsabilidad del solicitante",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "texto": "1. Los activos se prestan exclusivamente para uso institucional y para la actividad indicada en este formulario.\n2. El solicitante es responsable del cuidado, custodia y buen uso de los activos desde que los recibe hasta su devolución al Departamento de Tecnologías de Información.\n3. No se permite prestar los activos a terceros, instalar software, modificar su configuración ni retirar etiquetas de inventario.\n4. Los activos deben devolverse en la fecha indicada, completos y en el mismo estado en que se entregaron. Si necesita más tiempo, debe solicitar la ampliación a TI antes del vencimiento.\n5. Cualquier daño, falla, pérdida o robo debe reportarse de inmediato a TI. En caso de robo o pérdida, el solicitante deberá presentar la denuncia correspondiente.\n6. El daño o la pérdida por negligencia o mal uso se tramitará conforme a la normativa interna de la Municipalidad de Carrillo."
+                },
+                {
+                    "id": "cacep",
+                    "tipo": "aceptar",
+                    "etiqueta": "He leído y acepto las condiciones del préstamo.",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "sfir",
+            "titulo": "Firmas de entrega",
+            "campos": [
+                {
+                    "id": "cfent",
+                    "tipo": "firma",
+                    "etiqueta": "Entrega: funcionario de TIC",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "con_nombre": true,
+                    "con_cedula": true,
+                    "con_fecha": true
+                },
+                {
+                    "id": "cfrec",
+                    "tipo": "firma",
+                    "etiqueta": "Recibe: solicitante",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "con_nombre": true,
+                    "con_cedula": true,
+                    "con_fecha": true
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "sest",
+            "titulo": "Estado del préstamo",
+            "campos": [
+                {
+                    "id": "cestado",
+                    "tipo": "unica",
+                    "etiqueta": "Estado",
+                    "requerido": true,
+                    "ayuda": "Al prestar deje «En préstamo». Cuando el activo regrese, abra este registro desde «Registros», marque «Devuelto» y complete la devolución.",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "En préstamo",
+                        "Devuelto"
+                    ]
+                }
+            ],
+            "cond": null
+        },
+        {
+            "id": "sdev",
+            "titulo": "Devolución de los activos",
+            "campos": [
+                {
+                    "id": "cfreal",
+                    "tipo": "fecha",
+                    "etiqueta": "Fecha de devolución",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "fecha"
+                },
+                {
+                    "id": "chreal",
+                    "tipo": "hora",
+                    "etiqueta": "Hora de devolución",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "auto": "hora"
+                },
+                {
+                    "id": "ccond",
+                    "tipo": "unica",
+                    "etiqueta": "Condición en que se devuelve",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "Completo y en buen estado",
+                        "Con daños o faltantes"
+                    ]
+                },
+                {
+                    "id": "cdano",
+                    "tipo": "parrafo",
+                    "etiqueta": "Describa los daños o faltantes",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": {
+                        "campo": "ccond",
+                        "op": "igual",
+                        "valor": "Con daños o faltantes"
+                    },
+                    "auto": ""
+                },
+                {
+                    "id": "cverd",
+                    "tipo": "checklist",
+                    "etiqueta": "Revisión al recibir",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "opciones": [
+                        "El equipo enciende y funciona correctamente",
+                        "El estado físico coincide con el de la entrega",
+                        "Se devolvieron cables, cargador y accesorios",
+                        "Se borraron archivos o sesiones del solicitante (si aplica)",
+                        "Se actualizó el control de inventario de TI"
+                    ],
+                    "editable": true
+                },
+                {
+                    "id": "cobsd",
+                    "tipo": "parrafo",
+                    "etiqueta": "Observaciones de la devolución",
+                    "requerido": false,
+                    "ayuda": "",
+                    "ancho": "completo",
+                    "cond": null,
+                    "auto": ""
+                },
+                {
+                    "id": "cfdevs",
+                    "tipo": "firma",
+                    "etiqueta": "Entrega: solicitante",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "con_nombre": true,
+                    "con_cedula": true,
+                    "con_fecha": true
+                },
+                {
+                    "id": "cfdevt",
+                    "tipo": "firma",
+                    "etiqueta": "Recibe: funcionario de TIC",
+                    "requerido": true,
+                    "ayuda": "",
+                    "ancho": "medio",
+                    "cond": null,
+                    "con_nombre": true,
+                    "con_cedula": true,
+                    "con_fecha": true
+                }
+            ],
+            "cond": {
+                "campo": "cestado",
+                "op": "igual",
+                "valor": "Devuelto"
+            }
+        }
+    ],
+    "id": "prestamo-de-activos",
+    "creado": 1791908169,
+    "autor": "instalador",
+    "modificado": 1791908169,
+    "modificado_por": "instalador",
+    "version": 1
+}

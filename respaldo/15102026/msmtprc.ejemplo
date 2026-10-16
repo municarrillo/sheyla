@@ -1,0 +1,24 @@
+# /etc/msmtprc - cuenta SMTP con la que el servidor envía los correos de "¿Olvidó su contraseña?"
+# Permisos: root:www-data 640 (contiene una contraseña; no lo deje legible para todos).
+# Probar:   php /var/www/actas-app/usuarios.php probar-correo <usuario>
+# Errores:  journalctl -t msmtp -n 20
+
+defaults
+auth           on
+tls            on
+tls_starttls   on
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+syslog         LOG_MAIL
+
+account        actas
+# Microsoft 365 / Outlook:  smtp.office365.com   puerto 587
+# Google Workspace / Gmail: smtp.gmail.com       puerto 587 (requiere "contraseña de aplicación")
+# Servidor propio o relay interno: use su nombre o IP y el puerto que indique (25 o 587)
+host           smtp.office365.com
+port           587
+# Debe ser una cuenta real que tenga permiso para enviar (buzón o cuenta de servicio)
+from           actas-tic@municarrillo.go.cr
+user           actas-tic@municarrillo.go.cr
+password       CAMBIAR_ESTA_CLAVE
+
+account default : actas
