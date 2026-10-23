@@ -70,9 +70,13 @@ switch ($accion) {
                     'creado' => $base['creado'] ?? time(), 'creado_por' => $base['creado_por'] ?? $yo,
                     'modificado' => $base ? time() : 0, 'modificado_por' => $base ? $yo : ''];
             if (!empty($in['migrado']) && !$base) { $doc['migrado'] = true; }
-            if (!reg_escribir(reg_archivo($dir, $id), $doc)) responder(['ok' => false, 'error' => 'No se pudo guardar. Revise los permisos de ' . REG_DIR . '.'], 500);
-            if ($editando && $orig !== $id) @unlink(reg_archivo($dir, $orig));   // al editar se le cambió el número
-        } finally { flock($lk, LOCK_UN); fclose($lk); }
+            try {
+                db_tx(function () use ($doc, $editando, $orig, $id, $dir) {
+                    reg_escribir($doc);
+                    if ($editando && $orig !== $id) reg_borrar($dir, $orig);   // al editar se le cambió el número
+                });
+            } catch (Throwable $e) { error_log('[actas-tic] registros: ' . $e->getMessage()); responder(['ok' => false, 'error' => 'No se pudo guardar en la base de datos.'], 500); }
+        } finally { reg_desbloquear($lk); }
         actas_log("registros: $yo " . ($base ? 'actualizó' : 'guardó') . " $form $id" . ($editando && $orig !== $id ? " (antes $orig)" : ''));
         responder(['ok' => true, 'id' => $id, 'actualizado' => (bool)$base]);
 
@@ -85,11 +89,8 @@ switch ($accion) {
             $r = reg_leer($dir, $id);
             if (!$r) responder(['ok' => false, 'error' => 'El registro ya no existe.'], 404);
             if (!$puedeBorrar($r)) responder(['ok' => false, 'error' => 'Solo un administrador o quien lo registró puede eliminarlo.'], 403);
-            if (!is_dir($dir . '/_eliminados')) @mkdir($dir . '/_eliminados', 0770, true);
-            $r['eliminado'] = time(); $r['eliminado_por'] = $yo;
-            reg_escribir($dir . '/_eliminados/' . bin2hex($id) . '__' . time() . '.json', $r);
-            @unlink(reg_archivo($dir, $id));
-        } finally { flock($lk, LOCK_UN); fclose($lk); }
+            reg_eliminar($dir, $r, $yo);
+        } finally { reg_desbloquear($lk); }
         actas_log("registros: $yo eliminó $form $id");
         responder(['ok' => true]);
 }

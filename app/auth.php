@@ -5,7 +5,7 @@
  */
 declare(strict_types=1);
 
-define('ACTAS_USERS_FILE',  getenv('ACTAS_USERS_FILE')  ?: '/etc/actas/usuarios.json');
+define('ACTAS_USERS_FILE',  getenv('ACTAS_USERS_FILE')  ?: '/etc/actas/usuarios.json');   // solo para migrar la versión anterior
 define('ACTAS_CONFIG_FILE', getenv('ACTAS_CONFIG_FILE') ?: '/etc/actas/config.json');
 define('ACTAS_LOCK_DIR',    getenv('ACTAS_LOCK_DIR')    ?: '/var/lib/actas/intentos');
 define('ACTAS_RESET_DIR',   getenv('ACTAS_RESET_DIR')   ?: '/var/lib/actas/reset');
@@ -19,6 +19,7 @@ const ACTAS_CLAVE_MIN       = 10;    // largo mínimo de contraseña
 const ACTAS_HASH_RELLENO = '$2y$12$fZkZ9dq9ssWdFxMeFo8P.uLNVneueIxoywzFmWrUhIo8YWeCrhcJO';
 
 date_default_timezone_set('America/Costa_Rica');
+require_once __DIR__ . '/db.php';
 
 function e(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }
 function actas_largo(string $s): int { return (int)preg_match_all('/./su', $s); }
@@ -110,6 +111,7 @@ const ACTAS_ACCESOS = [
     'prestamos'       => 'Préstamo de Activos',
     'constructor'     => 'Constructor de formularios (crear formularios propios)',
     'datos'           => 'Base de datos de colaboradores (actualizar el Excel de inventario)',
+    'tecnicos'        => 'Técnicos de TI (mantenimiento de la lista desplegable)',
 ];
 function actas_permisos(?array $r): array {
     if ($r === null) return [];
@@ -157,37 +159,41 @@ function actas_csrf_ok(): bool {
     return hash_equals((string)($_SESSION['csrf'] ?? ''), (string)($_POST['csrf'] ?? ''));
 }
 
-/* ---------------- Usuarios (/etc/actas/usuarios.json) ----------------
- * Formato: { "usuario": { "hash": "...", "correo": "...", "cambio": 1760000000 } }
- * (se acepta también el formato anterior { "usuario": "hash" }) */
+/* ---------------- Usuarios (tabla «usuarios» de MySQL) ----------------
+ * Cada fila guarda el registro completo en «datos» (hash de la contraseña, correo, rol, permisos, fechas);
+ * nombre, correo, rol y activo se copian en columnas para consultarlos fácilmente. */
 function actas_usuarios(): array {
-    $raw = @file_get_contents(ACTAS_USERS_FILE);
-    $d = $raw !== false ? json_decode($raw, true) : null;
-    if (!is_array($d)) return [];
     $out = [];
-    foreach ($d as $u => $r) {
-        if (is_string($r)) $r = ['hash' => $r];
-        if (is_array($r) && isset($r['hash']) && is_string($r['hash'])) $out[(string)$u] = $r;
+    foreach (db_todas('SELECT usuario, datos FROM usuarios ORDER BY usuario') as $f) {
+        $r = db_dejson($f['datos']);
+        if (is_array($r) && isset($r['hash']) && is_string($r['hash'])) $out[(string)$f['usuario']] = $r;
     }
     return $out;
 }
 
 function actas_registro(string $u): ?array {
-    $us = actas_usuarios();
-    return $us[$u] ?? null;
+    $f = db_fila('SELECT datos FROM usuarios WHERE usuario = ?', [$u]);
+    $r = $f ? db_dejson($f['datos']) : null;
+    return is_array($r) && isset($r['hash']) ? $r : null;
 }
 
+/** Guarda la lista completa de usuarios (agrega, actualiza y quita los que ya no están). */
 function actas_guardar_usuarios(array $us): bool {
-    ksort($us);
-    $dir = dirname(ACTAS_USERS_FILE);
-    if (!is_dir($dir)) @mkdir($dir, 0770, true);
-    $tmp = $dir . '/.usuarios.' . bin2hex(random_bytes(6)) . '.tmp';
-    $json = json_encode($us, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
-    if (@file_put_contents($tmp, $json, LOCK_EX) === false) return false;
-    @chmod($tmp, 0660);
-    @chgrp($tmp, 'www-data');
-    if (!@rename($tmp, ACTAS_USERS_FILE)) { @unlink($tmp); return false; }
-    return true;
+    try {
+        db_tx(function () use ($us) {
+            $ins = actas_db()->prepare('INSERT INTO usuarios (usuario, nombre, correo, rol, activo, datos) VALUES (?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), correo = VALUES(correo), rol = VALUES(rol), activo = VALUES(activo), datos = VALUES(datos)');
+            foreach ($us as $u => $r) {
+                if (!is_array($r)) continue;
+                $ins->execute([(string)$u, db_corta($r['nombre'] ?? '', 120), db_corta($r['correo'] ?? '', 160), db_corta($r['rol'] ?? 'tecnico', 20),
+                               ($r['activo'] ?? true) !== false ? 1 : 0, db_json($r)]);
+            }
+            $quedan = array_map('strval', array_keys($us));
+            if ($quedan) db_q('DELETE FROM usuarios WHERE usuario NOT IN (' . implode(',', array_fill(0, count($quedan), '?')) . ')', $quedan);
+            else db_q('DELETE FROM usuarios');
+        });
+        return true;
+    } catch (Throwable $e) { error_log('[actas-tic] usuarios: ' . $e->getMessage()); return false; }
 }
 
 /** Cambia la contraseña e invalida las sesiones abiertas de ese usuario.
@@ -235,14 +241,11 @@ function actas_verificar(string $usuario, string $clave): bool {
     return $ok && $hash !== null && actas_activo($reg);
 }
 
-/* ---------------- Bloqueo por intentos (por IP y tipo) ---------------- */
-function actas_archivo_intentos(string $clave): string {
-    return ACTAS_LOCK_DIR . '/' . hash('sha256', $clave) . '.json';
-}
+/* ---------------- Bloqueo por intentos (por IP y tipo) — tabla «intentos» ---------------- */
 function actas_leer_intentos(string $clave): array {
-    $d = json_decode((string)@file_get_contents(actas_archivo_intentos($clave)), true);
-    $d = is_array($d) ? $d : ['n' => 0, 'desde' => 0];
-    if (time() - (int)$d['desde'] > ACTAS_BLOQUEO_SEG) $d = ['n' => 0, 'desde' => 0];
+    $f = db_fila('SELECT n, desde FROM intentos WHERE clave = ?', [hash('sha256', $clave)]);
+    $d = $f ? ['n' => (int)$f['n'], 'desde' => (int)$f['desde']] : ['n' => 0, 'desde' => 0];
+    if (time() - $d['desde'] > ACTAS_BLOQUEO_SEG) $d = ['n' => 0, 'desde' => 0];
     return $d;
 }
 /** Segundos que faltan de bloqueo (0 = no bloqueado). */
@@ -251,42 +254,33 @@ function actas_bloqueado(string $clave): int {
     return $d['n'] >= ACTAS_MAX_INTENTOS ? max(1, ACTAS_BLOQUEO_SEG - (time() - (int)$d['desde'])) : 0;
 }
 function actas_registrar_fallo(string $clave): void {
-    if (!is_dir(ACTAS_LOCK_DIR)) @mkdir(ACTAS_LOCK_DIR, 0700, true);
     $d = actas_leer_intentos($clave);
     if ($d['n'] === 0) $d['desde'] = time();
     $d['n']++;
-    @file_put_contents(actas_archivo_intentos($clave), json_encode($d), LOCK_EX);
+    db_q('REPLACE INTO intentos (clave, n, desde) VALUES (?, ?, ?)', [hash('sha256', $clave), $d['n'], $d['desde']]);
 }
 function actas_limpiar_fallos(string $clave): void {
-    @unlink(actas_archivo_intentos($clave));
+    db_q('DELETE FROM intentos WHERE clave = ?', [hash('sha256', $clave)]);
 }
 
-/* ---------------- Restablecer contraseña ----------------
- * El token viaja solo en el correo; en disco se guarda su hash SHA-256. Un solo uso, vence en 30 min. */
-function actas_reset_archivo(string $token): string {
-    return ACTAS_RESET_DIR . '/' . hash('sha256', $token) . '.json';
-}
+/* ---------------- Restablecer contraseña — tabla «reset_tokens» ----------------
+ * El token viaja solo en el correo; en la base se guarda su hash SHA-256. Un solo uso, vence en 30 min. */
 function actas_reset_crear(string $u, int $vigencia = ACTAS_RESET_VIGENCIA): string {
-    if (!is_dir(ACTAS_RESET_DIR)) @mkdir(ACTAS_RESET_DIR, 0700, true);
-    foreach (glob(ACTAS_RESET_DIR . '/*.json') ?: [] as $f) {   // limpia vencidos y anteriores del mismo usuario
-        $d = json_decode((string)@file_get_contents($f), true);
-        if (!is_array($d) || ($d['u'] ?? '') === $u || (int)($d['exp'] ?? 0) < time()) @unlink($f);
-    }
+    db_q('DELETE FROM reset_tokens WHERE usuario = ? OR expira < ?', [$u, time()]);   // limpia vencidos y anteriores del mismo usuario
     $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
-    file_put_contents(actas_reset_archivo($token), json_encode(['u' => $u, 'exp' => time() + $vigencia]), LOCK_EX);
+    db_q('INSERT INTO reset_tokens (token, usuario, expira) VALUES (?, ?, ?)', [hash('sha256', $token), $u, time() + $vigencia]);
     return $token;
 }
 /** Devuelve el usuario del token, o null si no existe o venció. */
 function actas_reset_usuario(string $token): ?string {
     if (!preg_match('/^[A-Za-z0-9_-]{43}$/', $token)) return null;
-    $f = actas_reset_archivo($token);
-    $d = json_decode((string)@file_get_contents($f), true);
-    if (!is_array($d) || (int)($d['exp'] ?? 0) < time()) { @unlink($f); return null; }
-    $u = (string)($d['u'] ?? '');
+    $f = db_fila('SELECT usuario, expira FROM reset_tokens WHERE token = ?', [hash('sha256', $token)]);
+    if (!$f || (int)$f['expira'] < time()) { actas_reset_consumir($token); return null; }
+    $u = (string)$f['usuario'];
     return actas_activo(actas_registro($u)) ? $u : null;
 }
 function actas_reset_consumir(string $token): void {
-    @unlink(actas_reset_archivo($token));
+    db_q('DELETE FROM reset_tokens WHERE token = ?', [hash('sha256', $token)]);
 }
 
 /* ---------------- Correo (usa el sendmail del sistema: msmtp) ---------------- */

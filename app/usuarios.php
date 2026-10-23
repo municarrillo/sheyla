@@ -36,7 +36,7 @@ function pedir_clave_nueva(string $u): string {
     return $c1;
 }
 function guardar(array $us): void {
-    if (!actas_guardar_usuarios($us)) salir('No se pudo escribir ' . ACTAS_USERS_FILE);
+    if (!actas_guardar_usuarios($us)) salir('No se pudo guardar en la base de datos MySQL.');
 }
 
 $accion = $argv[1] ?? '';

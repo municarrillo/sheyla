@@ -7,7 +7,8 @@
  */
 declare(strict_types=1);
 
-define('INV_DIR', getenv('ACTAS_INV_DIR') ?: '/var/lib/actas/datos');
+define('INV_DIR', getenv('ACTAS_INV_DIR') ?: '/var/lib/actas/datos');   // solo para migrar la versión anterior
+require_once __DIR__ . '/db.php';
 const INV_HISTORIAL = 15;   // versiones anteriores que se conservan
 
 /* ======================= Lectura de .xlsx ======================= */
@@ -109,6 +110,7 @@ function inv_tipo_equipo(string $m): string {
     if (preg_match('/all-?in-?one|\baio\b/i', $m)) return 'All in One';
     if (preg_match('/latitude|probook|elitebook|thinkpad|notebook|laptop|precision 7[5-7]\d\d|macbook/i', $m)) return 'Laptop';
     if (preg_match('/^ET\d|tablet|ipad|\btab\b/i', $m)) return 'Tablet';
+    if (preg_match('/optiplex|prodesk|elitedesk|thinkcentre|vostro \d+ (?:tower|sff|mt)|desktop|tower|\bsff\b|\bmt\b|mini ?pc|\bmicro\b|workstation/i', $m)) return 'Escritorio';
     return '';
 }
 
@@ -166,39 +168,78 @@ function inv_normalizar(array $hojas): array {
 
 /* ======================= Guardar / cargar ======================= */
 
+const INV_CAMPOS_EMP = ['codigo', 'nombre', 'cedula', 'puesto', 'departamento', 'correo', 'usuario'];
+const INV_CAMPOS_EQ  = ['hostname', 'usuario', 'nombre', 'codigo', 'departamento', 'correo', 'observacion', 'so', 'modelo', 'serie'];
+const INV_PERIFERICOS = ['monitor', 'telefono', 'mouse', 'teclado', 'ups'];
+
+/** Datos vigentes: tablas «colaboradores» y «equipos» + datos de la carga (ajuste «inventario»). */
 function inv_cargar(): array {
-    $d = json_decode((string)@file_get_contents(INV_DIR . '/inventario.json'), true);
-    return is_array($d) ? $d : ['empleados' => [], 'equipos' => [], 'actualizado' => 0];
+    $meta = db_ajuste('inventario', []);
+    $emp = array_map(fn($f) => array_combine(INV_CAMPOS_EMP, array_map(fn($k) => (string)$f[$k], INV_CAMPOS_EMP)),
+                     db_todas('SELECT ' . implode(', ', INV_CAMPOS_EMP) . ' FROM colaboradores ORDER BY n'));
+    $eq = [];
+    foreach (db_todas('SELECT ' . implode(', ', INV_CAMPOS_EQ) . ', perifericos FROM equipos ORDER BY n') as $f) {
+        $x = array_combine(INV_CAMPOS_EQ, array_map(fn($k) => (string)$f[$k], INV_CAMPOS_EQ));
+        $p = db_dejson($f['perifericos']) ?? [];
+        foreach (INV_PERIFERICOS as $k) $x[$k] = is_array($p[$k] ?? null) ? $p[$k] : [];
+        $eq[] = $x;
+    }
+    return ['empleados' => $emp, 'equipos' => $eq, 'actualizado' => (int)($meta['actualizado'] ?? 0), 'por' => (string)($meta['por'] ?? ''),
+            'archivo' => (string)($meta['archivo'] ?? ''), 'version' => (int)($meta['version'] ?? 0), 'original' => !empty($meta['original']) ? (string)$meta['version'] : ''];
 }
+/** Reemplaza los datos vigentes y guarda la carga como una versión nueva (con el Excel original). */
 function inv_guardar(array $datos, string $usuario, string $archivo, ?string $original): bool {
-    foreach ([INV_DIR, INV_DIR . '/historial'] as $d) if (!is_dir($d)) @mkdir($d, 0770, true);
-    $actual = INV_DIR . '/inventario.json';
-    if (is_file($actual)) @copy($actual, INV_DIR . '/historial/inventario-' . date('Ymd-His') . '.json');
-    $datos['actualizado'] = time(); $datos['por'] = $usuario; $datos['archivo'] = $archivo;
-    if ($original !== null) {
-        $datos['original'] = 'original-' . date('Ymd-His') . '.' . (preg_match('/\.csv$/i', $archivo) ? 'csv' : 'xlsx');
-        @file_put_contents(INV_DIR . '/historial/' . $datos['original'], $original);
-    }
-    unset($datos['avisos']);
-    $tmp = $actual . '.' . bin2hex(random_bytes(4)) . '.tmp';
-    if (@file_put_contents($tmp, json_encode($datos, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) === false || !@rename($tmp, $actual)) { @unlink($tmp); return false; }
-    // Conservar solo las últimas versiones
-    $h = glob(INV_DIR . '/historial/inventario-*.json') ?: []; rsort($h);
-    foreach (array_slice($h, INV_HISTORIAL) as $viejo) @unlink($viejo);
-    $o = glob(INV_DIR . '/historial/original-*') ?: []; rsort($o);
-    foreach (array_slice($o, INV_HISTORIAL + 1) as $viejo) @unlink($viejo);
-    return true;
+    try {
+        db_tx(function () use ($datos, $usuario, $archivo, $original) {
+            $emp = array_values($datos['empleados'] ?? []); $eq = array_values($datos['equipos'] ?? []);
+            $st = actas_db()->prepare('INSERT INTO inventario_versiones (actualizado, por, archivo, empleados, equipos, datos, original, original_nombre) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $st->bindValue(1, time(), PDO::PARAM_INT); $st->bindValue(2, $usuario); $st->bindValue(3, db_corta($archivo, 200));
+            $st->bindValue(4, count($emp), PDO::PARAM_INT); $st->bindValue(5, count($eq), PDO::PARAM_INT);
+            $st->bindValue(6, db_json(['empleados' => $emp, 'equipos' => $eq]));
+            $st->bindValue(7, $original, $original === null ? PDO::PARAM_NULL : PDO::PARAM_LOB); $st->bindValue(8, $original === null ? '' : db_corta($archivo, 200));
+            $st->execute();
+            $n = (int)actas_db()->lastInsertId();
+            db_q('DELETE FROM colaboradores'); db_q('DELETE FROM equipos');
+            $ie = actas_db()->prepare('INSERT INTO colaboradores (' . implode(', ', INV_CAMPOS_EMP) . ') VALUES (' . implode(', ', array_fill(0, count(INV_CAMPOS_EMP), '?')) . ')');
+            foreach ($emp as $e) $ie->execute(array_map(fn($k) => db_corta($e[$k] ?? '', $k === 'usuario' ? 80 : 160), INV_CAMPOS_EMP));
+            $iq = actas_db()->prepare('INSERT INTO equipos (' . implode(', ', INV_CAMPOS_EQ) . ', perifericos) VALUES (' . implode(', ', array_fill(0, count(INV_CAMPOS_EQ) + 1, '?')) . ')');
+            $lim = ['hostname' => 80, 'usuario' => 120, 'codigo' => 40, 'observacion' => 255, 'so' => 120, 'modelo' => 120, 'serie' => 80];
+            foreach ($eq as $q) $iq->execute(array_merge(array_map(fn($k) => db_corta($q[$k] ?? '', $lim[$k] ?? 160), INV_CAMPOS_EQ),
+                                                         [db_json(array_intersect_key($q, array_flip(INV_PERIFERICOS)))]));
+            db_ajuste_poner('inventario', ['actualizado' => time(), 'por' => $usuario, 'archivo' => $archivo, 'version' => $n, 'original' => $original !== null]);
+            // Conservar solo las últimas versiones
+            $corte = db_valor('SELECT n FROM inventario_versiones ORDER BY n DESC LIMIT 1 OFFSET ' . INV_HISTORIAL);
+            if ($corte !== null) db_q('DELETE FROM inventario_versiones WHERE n <= ?', [(int)$corte]);
+        });
+        return true;
+    } catch (Throwable $e) { error_log('[actas-tic] inventario: ' . $e->getMessage()); return false; }
 }
+/** Versiones anteriores a la vigente (más recientes primero). 'archivo' es el número de versión. */
 function inv_historial(): array {
-    $out = [];
-    foreach (glob(INV_DIR . '/historial/inventario-*.json') ?: [] as $f) {
-        $d = json_decode((string)@file_get_contents($f), true);
-        if (is_array($d)) $out[] = ['archivo' => basename($f), 'actualizado' => $d['actualizado'] ?? filemtime($f), 'por' => $d['por'] ?? '', 'nombre' => $d['archivo'] ?? '',
-            'empleados' => count($d['empleados'] ?? []), 'equipos' => count($d['equipos'] ?? []), 'original' => $d['original'] ?? ''];
-    }
-    usort($out, fn($a, $b) => $b['actualizado'] <=> $a['actualizado']);
-    return $out;
+    $vig = (int)(db_ajuste('inventario', [])['version'] ?? 0);
+    return array_map(fn($f) => ['archivo' => (string)$f['n'], 'actualizado' => (int)$f['actualizado'], 'por' => $f['por'], 'nombre' => $f['archivo'],
+                                'empleados' => (int)$f['empleados'], 'equipos' => (int)$f['equipos'], 'original' => $f['tiene'] ? (string)$f['n'] : ''],
+        db_todas('SELECT n, actualizado, por, archivo, empleados, equipos, original IS NOT NULL AS tiene FROM inventario_versiones WHERE n <> ? ORDER BY n DESC', [$vig]));
 }
+function inv_version(int $n): ?array {
+    $f = db_fila('SELECT actualizado, por, archivo, datos, original, original_nombre FROM inventario_versiones WHERE n = ?', [$n]);
+    if (!$f) return null;
+    $d = db_dejson($f['datos']) ?? [];
+    return ['empleados' => $d['empleados'] ?? [], 'equipos' => $d['equipos'] ?? [], 'actualizado' => (int)$f['actualizado'], 'por' => $f['por'],
+            'archivo' => $f['archivo'], 'original' => $f['original'] === null ? null : (string)$f['original'], 'original_nombre' => $f['original_nombre']];
+}
+/* Carga pendiente de confirmar (se revisa antes de aplicar) */
+function inv_pendiente_poner(string $clave, string $nombre, array $datos, string $bin): void {
+    db_q('DELETE FROM inventario_pendiente WHERE clave = ? OR creado < ?', [$clave, time() - 86400]);
+    $st = actas_db()->prepare('INSERT INTO inventario_pendiente (clave, nombre, datos, original, creado) VALUES (?, ?, ?, ?, ?)');
+    $st->bindValue(1, $clave); $st->bindValue(2, db_corta($nombre, 200)); $st->bindValue(3, db_json($datos)); $st->bindValue(4, $bin, PDO::PARAM_LOB); $st->bindValue(5, time(), PDO::PARAM_INT);
+    $st->execute();
+}
+function inv_pendiente(string $clave): ?array {
+    $f = db_fila('SELECT nombre, datos, original FROM inventario_pendiente WHERE clave = ?', [$clave]);
+    return $f ? ['nombre' => $f['nombre'], 'datos' => db_dejson($f['datos']) ?? [], 'original' => (string)$f['original']] : null;
+}
+function inv_pendiente_borrar(string $clave): void { db_q('DELETE FROM inventario_pendiente WHERE clave = ?', [$clave]); }
 
 /** Compara dos versiones: nuevos, modificados y retirados por colaborador (cédula o código) y por equipo (hostname o serie). */
 function inv_comparar(array $antes, array $despues): array {
@@ -228,7 +269,7 @@ function inv_equipos_de(array $e, array $equipos): array {
 function inv_filas_acta(array $q): array {
     $f = [];
     $tipo = inv_tipo_equipo($q['modelo']);
-    $f[] = ['Computadora ' . ($tipo !== '' ? $tipo . ' ' : '') . ($q['hostname'] !== '' ? '(' . strtoupper($q['hostname']) . ')' : ''), inv_marca_de_modelo($q['modelo']), $q['modelo'], $q['serie'], ''];
+    $f[] = ['Computadora ' . ($tipo !== '' ? ($tipo === 'Escritorio' ? 'de escritorio' : $tipo) . ' ' : '') . ($q['hostname'] !== '' ? '(' . strtoupper($q['hostname']) . ')' : ''), inv_marca_de_modelo($q['modelo']), $q['modelo'], $q['serie'], ''];
     foreach (['monitor' => 'Monitor', 'telefono' => 'Teléfono IP', 'mouse' => 'Mouse', 'teclado' => 'Teclado', 'ups' => 'UPS'] as $k => $nom) {
         $x = $q[$k] ?? [];
         if (trim(($x['marca'] ?? '') . ($x['modelo'] ?? '') . ($x['serie'] ?? '')) === '') continue;

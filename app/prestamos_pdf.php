@@ -4,7 +4,7 @@
  *   reserva     → Comprobante de reserva (al reservar)
  *   entrega     → Acta de préstamo (al entregar, con firmas)
  *   devolucion  → Acta de préstamo y devolución (al devolver, con todas las firmas)
- * Cada documento se guarda en /var/lib/actas/prestamos/pdf/ en el momento del evento, como registro.
+ * Cada documento se guarda en la tabla «pres_pdf» en el momento del evento, como registro.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/pdf.php';
@@ -12,7 +12,8 @@ require_once __DIR__ . '/pdf.php';
 const PRES_DOCS = ['reserva' => 'Comprobante de reserva', 'entrega' => 'Acta de préstamo de activos', 'devolucion' => 'Acta de préstamo y devolución de activos'];
 
 function pres_doc_actual(array $r): string { return $r['estado'] === 'devuelto' ? 'devolucion' : ($r['estado'] === 'prestado' ? 'entrega' : 'reserva'); }
-function pres_pdf_ruta(string $id, string $doc): string { return PRES_DIR . '/pdf/' . preg_replace('/[^A-Za-z0-9-]/', '', $id) . '-' . $doc . '.pdf'; }
+/** PDF guardado en la base (tabla «pres_pdf») o null. */
+function pres_pdf_guardado(string $id, string $doc): ?string { $v = db_valor('SELECT pdf FROM pres_pdf WHERE id = ? AND doc = ?', [$id, $doc]); return $v === null ? null : (string)$v; }
 
 function pres_pdf(array $r, array $activos, string $doc): string {
     $pdf = new PdfDoc();
@@ -111,7 +112,10 @@ function pres_pdf(array $r, array $activos, string $doc): string {
 /** Genera y guarda el documento como registro; devuelve el contenido. */
 function pres_pdf_guardar(array $r, array $activos, string $doc): string {
     $bin = pres_pdf($r, $activos, $doc);
-    if (!is_dir(PRES_DIR . '/pdf')) @mkdir(PRES_DIR . '/pdf', 0770, true);
-    @file_put_contents(pres_pdf_ruta($r['id'], $doc), $bin, LOCK_EX);
+    try {
+        $st = actas_db()->prepare('REPLACE INTO pres_pdf (id, doc, pdf, creado) VALUES (?, ?, ?, ?)');
+        $st->bindValue(1, (string)$r['id']); $st->bindValue(2, $doc); $st->bindValue(3, $bin, PDO::PARAM_LOB); $st->bindValue(4, time(), PDO::PARAM_INT);
+        $st->execute();
+    } catch (Throwable $e) { error_log('[actas-tic] pres_pdf: ' . $e->getMessage()); }
     return $bin;
 }

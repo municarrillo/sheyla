@@ -84,6 +84,54 @@ final class PdfDoc {
         $this->imgs[$n] = [$datos, (int)$i[0], (int)$i[1], ($i['channels'] ?? 3) === 1];
         return $n;
     }
+    /** Registra un PNG (firmas del lienzo) sobre fondo blanco y devuelve su nombre, o null si no se puede leer. */
+    public function png(string $bin): ?string {
+        if (!str_starts_with($bin, "\x89PNG\r\n\x1a\n") || !function_exists('gzuncompress')) return null;
+        $p = 8; $idat = ''; $w = $h = $prof = $tipo = $inter = 0;
+        while ($p + 8 <= strlen($bin)) {
+            $len = unpack('N', substr($bin, $p, 4))[1]; $t = substr($bin, $p + 4, 4); $d = substr($bin, $p + 8, $len); $p += 12 + $len;
+            if ($t === 'IHDR') { $i = unpack('Nw/Nh/Cprof/Ctipo/Ccomp/Cfiltro/Cinter', $d); [$w, $h, $prof, $tipo, $inter] = [$i['w'], $i['h'], $i['prof'], $i['tipo'], $i['inter']]; }
+            elseif ($t === 'IDAT') $idat .= $d;
+            elseif ($t === 'IEND') break;
+        }
+        $bpp = [0 => 1, 2 => 3, 4 => 2, 6 => 4][$tipo] ?? 0;
+        if ($prof !== 8 || $inter !== 0 || !$bpp || $w < 1 || $h < 1 || $w * $h > 4_000_000) return null;
+        $raw = @gzuncompress($idat);
+        $fila = $w * $bpp;
+        if ($raw === false || strlen($raw) < ($fila + 1) * $h) return null;
+        $out = ''; $prev = array_fill(0, $fila, 0);
+        for ($y = 0; $y < $h; $y++) {
+            $f = ord($raw[$y * ($fila + 1)]);
+            $cur = array_values(unpack('C*', substr($raw, $y * ($fila + 1) + 1, $fila)));
+            if ($f === 1) { for ($i = $bpp; $i < $fila; $i++) $cur[$i] = ($cur[$i] + $cur[$i - $bpp]) & 255; }
+            elseif ($f === 2) { for ($i = 0; $i < $fila; $i++) $cur[$i] = ($cur[$i] + $prev[$i]) & 255; }
+            elseif ($f === 3) { for ($i = 0; $i < $fila; $i++) $cur[$i] = ($cur[$i] + (($i >= $bpp ? $cur[$i - $bpp] : 0) + $prev[$i] >> 1)) & 255; }
+            elseif ($f === 4) {
+                for ($i = 0; $i < $fila; $i++) {
+                    $a = $i >= $bpp ? $cur[$i - $bpp] : 0; $b = $prev[$i]; $c = $i >= $bpp ? $prev[$i - $bpp] : 0;
+                    $pp = $a + $b - $c; $pa = abs($pp - $a); $pb = abs($pp - $b); $pc = abs($pp - $c);
+                    $cur[$i] = ($cur[$i] + ($pa <= $pb && $pa <= $pc ? $a : ($pb <= $pc ? $b : $c))) & 255;
+                }
+            }
+            $prev = $cur;
+            // Componer sobre blanco → RGB
+            if ($tipo === 6) { for ($i = 0; $i < $fila; $i += 4) { $al = $cur[$i + 3]; $k = 255 - $al;
+                    $out .= chr(intdiv($cur[$i] * $al + 255 * $k, 255)) . chr(intdiv($cur[$i + 1] * $al + 255 * $k, 255)) . chr(intdiv($cur[$i + 2] * $al + 255 * $k, 255)); } }
+            elseif ($tipo === 4) { for ($i = 0; $i < $fila; $i += 2) { $v = chr(intdiv($cur[$i] * $cur[$i + 1] + 255 * (255 - $cur[$i + 1]), 255)); $out .= $v . $v . $v; } }
+            elseif ($tipo === 0) { foreach ($cur as $v) $out .= chr($v) . chr($v) . chr($v); }
+            else $out .= pack('C*', ...$cur);
+        }
+        $n = 'Im' . (count($this->imgs) + 1);
+        $this->imgs[$n] = [gzcompress($out), $w, $h, false, 'FlateDecode'];
+        return $n;
+    }
+    /** JPEG o PNG en «data:image/...;base64,». */
+    public function imagenDataUrl(string $url): ?string {
+        if (!preg_match('#^data:image/(jpeg|png);base64,(.+)$#s', $url, $m)) return null;
+        $bin = base64_decode($m[2], true);
+        if ($bin === false) return null;
+        return $m[1] === 'png' ? $this->png($bin) : $this->jpeg($bin);
+    }
     public function imagen(string $n, float $x, float $y, float $w, float $h): void {
         $this->c .= sprintf("q %.2F 0 0 %.2F %.2F %.2F cm /%s Do Q\n", $w, $h, $x, $this->y($y + $h), $n);
     }
@@ -98,10 +146,11 @@ final class PdfDoc {
         $obj[$fuentes['F1']] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
         $obj[$fuentes['F2']] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
         $imgObj = [];
-        foreach ($this->imgs as $nom => [$d, $w, $h, $gris]) {
+        foreach ($this->imgs as $nom => $im) {
+            [$d, $w, $h, $gris] = $im; $fil = $im[4] ?? 'DCTDecode';
             $imgObj[$nom] = $n;
             $obj[$n++] = "<< /Type /XObject /Subtype /Image /Width $w /Height $h /ColorSpace /" . ($gris ? 'DeviceGray' : 'DeviceRGB')
-                . " /BitsPerComponent 8 /Filter /DCTDecode /Length " . strlen($d) . " >>\nstream\n$d\nendstream";
+                . " /BitsPerComponent 8 /Filter /$fil /Length " . strlen($d) . " >>\nstream\n$d\nendstream";
         }
         $res = '<< /Font << /F1 ' . $fuentes['F1'] . ' 0 R /F2 ' . $fuentes['F2'] . ' 0 R >>'
              . ($imgObj ? ' /XObject << ' . implode(' ', array_map(fn($k, $v) => "/$k $v 0 R", array_keys($imgObj), $imgObj)) . ' >>' : '') . ' >>';
@@ -221,7 +270,7 @@ final class PdfHoja {
             $this->pdf->rect($x, $y, $w, 116, null, self::LINE, 0.7);
             $this->pdf->texto($x + 9, $y + 8, mb_strtoupper_seguro($t), 7.5, true, self::NAVY);
             $img = $f['img'] ?? '';
-            if (str_starts_with($img, 'data:image/jpeg;base64,') && ($n = $this->pdf->jpeg((string)base64_decode(substr($img, 23), true)))) {
+            if ($img !== '' && ($n = $this->pdf->imagenDataUrl($img))) {
                 $bw = $w - 18; $bh = 52; $p = $this->pdf->proporcion($n);
                 $iw = min($bw, $bh / $p); $ih = $iw * $p;
                 $this->pdf->imagen($n, $x + 9 + ($bw - $iw) / 2, $y + 22 + ($bh - $ih) / 2, $iw, $ih);

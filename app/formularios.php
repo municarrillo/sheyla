@@ -6,7 +6,8 @@
  */
 declare(strict_types=1);
 
-define('ACTAS_FORMS_DIR', getenv('ACTAS_FORMS_DIR') ?: '/var/lib/actas/formularios');
+define('ACTAS_FORMS_DIR', getenv('ACTAS_FORMS_DIR') ?: '/var/lib/actas/formularios');   // solo para migrar la versión anterior
+require_once __DIR__ . '/db.php';
 
 const FORM_TIPOS = ['texto', 'parrafo', 'numero', 'fecha', 'hora', 'correo', 'lista', 'unica', 'multiple',
                     'checklist', 'tabla', 'firma', 'info', 'aceptar'];
@@ -15,7 +16,7 @@ const FORM_AUTO = ['', 'fecha', 'hora', 'usuario', 'nombre'];
 const FORM_OPS = ['igual', 'distinto', 'contiene', 'marcado', 'no_marcado', 'lleno', 'vacio', 'mayor', 'menor'];
 
 function form_id_valido(string $id): bool { return (bool)preg_match('/^[a-z0-9][a-z0-9-]{1,47}$/', $id); }
-function form_archivo(string $id): string { return ACTAS_FORMS_DIR . '/' . $id . '.json'; }
+function form_existe(string $id): bool { return db_valor('SELECT 1 FROM formularios WHERE id = ?', [$id]) !== null; }
 
 /** Texto limpio: sin caracteres de control (salvo saltos de línea si $multi) y con largo máximo. */
 function form_txt($v, int $max, bool $multi = false): string {
@@ -41,11 +42,30 @@ function form_slug(string $titulo): string {
     $s = substr($s, 0, 40) ?: 'formulario';
     if (!preg_match('/^[a-z0-9]/', $s)) $s = 'f-' . $s;
     $base = rtrim($s, '-'); $id = $base; $n = 2;
-    while (is_file(form_archivo($id))) $id = $base . '-' . $n++;
+    while (form_existe($id)) $id = $base . '-' . $n++;
     return $id;
 }
 function mb_strtolower_seguro(string $s): string {
     return function_exists('mb_strtolower') ? mb_strtolower($s, 'UTF-8') : strtr(strtolower($s), ['Á'=>'á','É'=>'é','Í'=>'í','Ó'=>'ó','Ú'=>'ú','Ü'=>'ü','Ñ'=>'ñ']);
+}
+
+/* ---------- Colores de los formularios en el menú principal ---------- */
+const FORM_COLORES = [
+    'azul' => ['Azul', '#1f5fa8'], 'turquesa' => ['Turquesa', '#0f8a7e'], 'morado' => ['Morado', '#6d4bb8'],
+    'naranja' => ['Naranja', '#d9731a'], 'vino' => ['Vino', '#a8324a'], 'verde' => ['Verde', '#2e8b57'],
+    'indigo' => ['Índigo', '#3949ab'], 'fucsia' => ['Fucsia', '#b23f8e'], 'dorado' => ['Dorado', '#b07d10'],
+    'celeste' => ['Celeste', '#1689b5'], 'grafito' => ['Grafito', '#4a5868'], 'coral' => ['Coral', '#d4553f'],
+];
+const FORM_COLOR_FIJOS = ['acta_entrega' => 'azul', 'acta_devolucion' => 'turquesa', 'bitacora' => 'morado', 'prestamos' => 'naranja', 'datos' => 'verde'];
+/** Color (hex) de un formulario: el elegido en el constructor o uno fijo según su id. */
+function form_color(string $clave, ?array $def = null): string {
+    $k = (string)($def['color'] ?? '');
+    if (!isset(FORM_COLORES[$k])) $k = FORM_COLOR_FIJOS[$clave] ?? '';
+    if (!isset(FORM_COLORES[$k])) {   // automático: siempre el mismo para el mismo formulario
+        $libres = array_values(array_diff(array_keys(FORM_COLORES), FORM_COLOR_FIJOS));
+        $k = $libres[crc32($clave) % count($libres)];
+    }
+    return FORM_COLORES[$k][1];
 }
 
 /**
@@ -61,6 +81,7 @@ function form_normalizar(array $f): array {
         'descripcion' => form_txt($f['descripcion'] ?? '', 400),
         'publicado'   => !empty($f['publicado']),
         'numeracion'  => !empty($f['numeracion']),
+        'color'       => isset(FORM_COLORES[(string)($f['color'] ?? '')]) ? (string)$f['color'] : '',
         'secciones'   => [],
     ];
     $ids = [];
@@ -148,77 +169,76 @@ function form_normalizar(array $f): array {
 
 function form_cargar(string $id): ?array {
     if (!form_id_valido($id)) return null;
-    $d = json_decode((string)@file_get_contents(form_archivo($id)), true);
-    return is_array($d) ? $d : null;
+    return db_dejson(db_valor('SELECT def FROM formularios WHERE id = ?', [$id]));
 }
 
 /** Lista de formularios (solo publicados si $soloPublicados), ordenados por título. */
 function form_listar(bool $soloPublicados = false): array {
     $out = [];
-    foreach (glob(ACTAS_FORMS_DIR . '/*.json') ?: [] as $f) {
-        $d = json_decode((string)@file_get_contents($f), true);
-        if (!is_array($d) || empty($d['id'])) continue;
-        if ($soloPublicados && empty($d['publicado'])) continue;
-        $out[] = $d;
+    foreach (db_todas('SELECT def FROM formularios' . ($soloPublicados ? ' WHERE publicado = 1' : '')) as $f) {
+        $d = db_dejson($f['def']);
+        if (is_array($d) && !empty($d['id'])) $out[] = $d;
     }
     usort($out, fn($a, $b) => strcasecmp((string)$a['titulo'], (string)$b['titulo']));
     return $out;
 }
-
-function form_guardar(array $def, string $usuario, ?string $id = null): string {
-    if (!is_dir(ACTAS_FORMS_DIR)) @mkdir(ACTAS_FORMS_DIR, 0770, true);
-    $prev = $id !== null ? form_cargar($id) : null;
-    $id = $prev ? $id : form_slug($def['titulo']);
-    $def['id'] = $id;
-    $def['creado'] = $prev['creado'] ?? time();
-    $def['autor'] = $prev['autor'] ?? $usuario;
-    $def['modificado'] = time();
-    $def['modificado_por'] = $usuario;
-    $def['version'] = (int)($prev['version'] ?? 0) + 1;
-    $tmp = ACTAS_FORMS_DIR . '/.' . $id . '.' . bin2hex(random_bytes(4)) . '.tmp';
-    $json = json_encode($def, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if ($json === false || @file_put_contents($tmp, $json . PHP_EOL, LOCK_EX) === false) return '';
-    @chmod($tmp, 0660);
-    if (!@rename($tmp, form_archivo($id))) { @unlink($tmp); return ''; }
-    return $id;
+/** Escribe la definición tal cual (sin tocar autor ni versión). */
+function form_escribir(array $d): bool {
+    db_q('INSERT INTO formularios (id, titulo, publicado, autor, creado, modificado, modificado_por, def) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE titulo = VALUES(titulo), publicado = VALUES(publicado), autor = VALUES(autor), creado = VALUES(creado),
+          modificado = VALUES(modificado), modificado_por = VALUES(modificado_por), def = VALUES(def)',
+        [$d['id'], db_corta($d['titulo'] ?? '', 160), empty($d['publicado']) ? 0 : 1, db_corta($d['autor'] ?? '', 64), (int)($d['creado'] ?? time()),
+         (int)($d['modificado'] ?? time()), db_corta($d['modificado_por'] ?? '', 64), db_json($d)]);
+    return true;
 }
 
-/* ---------------- Papelera ----------------
- * Eliminar un formulario lo mueve a /var/lib/actas/formularios/papelera/<id>__<fecha>.json */
-function form_papelera_dir(): string { return ACTAS_FORMS_DIR . '/papelera'; }
+function form_guardar(array $def, string $usuario, ?string $id = null): string {
+    try {
+        $prev = $id !== null ? form_cargar($id) : null;
+        $id = $prev ? $id : form_slug($def['titulo']);
+        $def['id'] = $id;
+        $def['creado'] = $prev['creado'] ?? time();
+        $def['autor'] = $prev['autor'] ?? $usuario;
+        $def['modificado'] = time();
+        $def['modificado_por'] = $usuario;
+        $def['version'] = (int)($prev['version'] ?? 0) + 1;
+        form_escribir($def);
+        return $id;
+    } catch (Throwable $e) { error_log('[actas-tic] formularios: ' . $e->getMessage()); return ''; }
+}
+
+/* ---------------- Papelera (tabla «formularios_papelera») ----------------
+ * Eliminar un formulario lo mueve a la papelera con la clave <id>__<fecha>. */
 function form_papelera_valida(string $clave): bool { return (bool)preg_match('/^[a-z0-9][a-z0-9-]{1,47}__\d{10}$/', $clave); }
-function form_papelera_archivo(string $clave): string { return form_papelera_dir() . '/' . $clave . '.json'; }
 
 /** Mueve el formulario a la papelera. */
 function form_eliminar(string $id, string $por = ''): bool {
-    if (!form_id_valido($id) || !is_file(form_archivo($id))) return false;
     $d = form_cargar($id);
     if ($d === null) return false;
-    if (!is_dir(form_papelera_dir())) @mkdir(form_papelera_dir(), 0770, true);
     $t = time();
-    while (is_file(form_papelera_archivo($id . '__' . $t))) $t++;
+    while (db_valor('SELECT 1 FROM formularios_papelera WHERE clave = ?', [$id . '__' . $t]) !== null) $t++;
     $d['_papelera'] = ['at' => time(), 'por' => $por, 'id_original' => $id];
-    $json = json_encode($d, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if ($json === false || @file_put_contents(form_papelera_archivo($id . '__' . $t), $json . PHP_EOL, LOCK_EX) === false) return false;
-    return @unlink(form_archivo($id));
+    db_tx(function () use ($d, $id, $t, $por) {
+        db_q('INSERT INTO formularios_papelera (clave, id, titulo, eliminado, eliminado_por, def) VALUES (?, ?, ?, ?, ?, ?)',
+             [$id . '__' . $t, $id, db_corta($d['titulo'] ?? '', 160), time(), $por, db_json($d)]);
+        db_q('DELETE FROM formularios WHERE id = ?', [$id]);
+    });
+    return true;
 }
 /** Formularios creados que están en la papelera (más recientes primero). */
 function form_papelera_listar(): array {
     $out = [];
-    foreach (glob(form_papelera_dir() . '/*.json') ?: [] as $f) {
-        $clave = basename($f, '.json');
-        $d = json_decode((string)@file_get_contents($f), true);
-        if (!form_papelera_valida($clave) || !is_array($d)) continue;
-        $d['_clave'] = $clave;
+    foreach (db_todas('SELECT clave, def FROM formularios_papelera ORDER BY eliminado DESC') as $f) {
+        $d = db_dejson($f['def']);
+        if (!is_array($d)) continue;
+        $d['_clave'] = $f['clave'];
         $out[] = $d;
     }
-    usort($out, fn($a, $b) => (int)($b['_papelera']['at'] ?? 0) <=> (int)($a['_papelera']['at'] ?? 0));
     return $out;
 }
 function form_papelera_cargar(string $clave): ?array {
     if (!form_papelera_valida($clave)) return null;
-    $d = json_decode((string)@file_get_contents(form_papelera_archivo($clave)), true);
-    return is_array($d) ? $d : null;
+    return db_dejson(db_valor('SELECT def FROM formularios_papelera WHERE clave = ?', [$clave]));
 }
 /** Restaura; si ya existe otro formulario con el mismo id, lo restaura con un id nuevo. Devuelve el id o ''. */
 function form_papelera_restaurar(string $clave, string $por): string {
@@ -226,23 +246,21 @@ function form_papelera_restaurar(string $clave, string $por): string {
     if ($d === null) return '';
     $id = (string)($d['_papelera']['id_original'] ?? $d['id'] ?? '');
     unset($d['_papelera'], $d['_clave']);
-    if (form_id_valido($id) && !is_file(form_archivo($id))) {
-        $d['id'] = $id;
-        $d['modificado'] = time();
-        $d['modificado_por'] = $por;
-        $json = json_encode($d, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($json === false || @file_put_contents(form_archivo($id), $json . PHP_EOL, LOCK_EX) === false) return '';
-        @chmod(form_archivo($id), 0660);
-        $res = $id;
-    } else {
-        $d['titulo'] = form_txt($d['titulo'] . ' (restaurado)', 120);
-        $res = form_guardar($d, $por, null);
-    }
-    if ($res !== '') @unlink(form_papelera_archivo($clave));
+    try {
+        if (form_id_valido($id) && !form_existe($id)) {
+            $d['id'] = $id; $d['modificado'] = time(); $d['modificado_por'] = $por;
+            form_escribir($d);
+            $res = $id;
+        } else {
+            $d['titulo'] = form_txt($d['titulo'] . ' (restaurado)', 120);
+            $res = form_guardar($d, $por, null);
+        }
+    } catch (Throwable $e) { error_log('[actas-tic] papelera: ' . $e->getMessage()); return ''; }
+    if ($res !== '') form_papelera_borrar($clave);
     return $res;
 }
 function form_papelera_borrar(string $clave): bool {
-    return form_papelera_valida($clave) && @unlink(form_papelera_archivo($clave));
+    return form_papelera_valida($clave) && db_q('DELETE FROM formularios_papelera WHERE clave = ?', [$clave])->rowCount() > 0;
 }
 
 /** JSON seguro para incrustar dentro de <script>. */
@@ -257,24 +275,24 @@ const FORM_FIJOS = [
     'acta_devolucion' => ['titulo' => 'Acta de Devolución',    'pagina' => 'acta_devolucion_equipos_web.php'],
     'bitacora'        => ['titulo' => 'Bitácora de Simulacro', 'pagina' => 'bitacora_mantenimiento.php'],
 ];
-function form_sistema_archivo(): string { return ACTAS_FORMS_DIR . '/.sistema.json'; }
+function form_sistema(): array { $d = db_ajuste('formularios_sistema', []); return is_array($d) ? $d : []; }
 function form_fijos_eliminados(): array {
-    $d = json_decode((string)@file_get_contents(form_sistema_archivo()), true);
+    $d = form_sistema();
     return array_values(array_intersect(is_array($d['eliminados'] ?? null) ? $d['eliminados'] : [], array_keys(FORM_FIJOS)));
 }
 function form_fijo_activo(string $clave): bool { return !in_array($clave, form_fijos_eliminados(), true); }
 function form_fijo_set(string $clave, bool $eliminado, string $por = ''): bool {
     if (!isset(FORM_FIJOS[$clave])) return false;
-    if (!is_dir(ACTAS_FORMS_DIR)) @mkdir(ACTAS_FORMS_DIR, 0770, true);
     $l = array_values(array_diff(form_fijos_eliminados(), [$clave]));
     $info = form_fijos_info();
     unset($info[$clave]);
     if ($eliminado) { $l[] = $clave; $info[$clave] = ['at' => time(), 'por' => $por]; }
-    return @file_put_contents(form_sistema_archivo(), json_encode(['eliminados' => $l, 'info' => $info]) . PHP_EOL, LOCK_EX) !== false;
+    db_ajuste_poner('formularios_sistema', ['eliminados' => $l, 'info' => $info]);
+    return true;
 }
 /** Fecha y usuario de cada formulario del sistema eliminado. */
 function form_fijos_info(): array {
-    $d = json_decode((string)@file_get_contents(form_sistema_archivo()), true);
+    $d = form_sistema();
     return is_array($d['info'] ?? null) ? $d['info'] : [];
 }
 /** Para las páginas fijas: si el formulario fue eliminado, responde 404. */

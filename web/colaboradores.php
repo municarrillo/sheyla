@@ -8,7 +8,7 @@ require __DIR__ . '/../actas-app/tema.php';
 $yo = actas_requerir_login();
 actas_requerir_acceso($yo, 'datos');
 $csrf = actas_csrf();
-$pend = INV_DIR . '/pendiente-' . substr(hash('sha256', session_id() . $yo), 0, 16);
+$pend = substr(hash('sha256', session_id() . $yo), 0, 16);   // clave de la carga pendiente de esta sesión
 
 function ir(string $q = '', string $tipo = '', string $msg = ''): never {
     if ($msg !== '') $_SESSION['flash_inv'] = [$tipo, $msg];
@@ -17,12 +17,13 @@ function ir(string $q = '', string $tipo = '', string $msg = ''): never {
 
 /* ---------- Descargar el archivo original de una versión ---------- */
 if (isset($_GET['descargar'])) {
-    $n = (string)$_GET['descargar'];
-    $ruta = INV_DIR . '/historial/' . $n;
-    if (!preg_match('/^original-\d{8}-\d{6}\.(xlsx|csv)$/', $n) || !is_file($ruta)) { http_response_code(404); exit('No encontrado'); }
-    header('Content-Type: ' . (str_ends_with($n, '.csv') ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'));
-    header('Content-Disposition: attachment; filename="' . $n . '"');
-    readfile($ruta); exit;
+    $ver = ctype_digit((string)$_GET['descargar']) ? inv_version((int)$_GET['descargar']) : null;
+    if (!$ver || $ver['original'] === null) { http_response_code(404); exit('No encontrado'); }
+    $nom = preg_replace('/[^A-Za-z0-9._ -]/', '_', $ver['original_nombre'] ?: 'inventario.xlsx');
+    header('Content-Type: ' . (preg_match('/\.csv$/i', $nom) ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'));
+    header('Content-Disposition: attachment; filename="' . $nom . '"');
+    header('Content-Length: ' . strlen($ver['original']));
+    echo $ver['original']; exit;
 }
 
 /* ---------- Acciones ---------- */
@@ -39,29 +40,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $datos = inv_normalizar($hojas);
             } catch (Throwable $e) { ir('', 'err', 'No se pudo leer «' . $nombre . '»: ' . $e->getMessage()); }
             if (!$datos['empleados'] && !$datos['equipos']) ir('', 'err', 'El archivo no tiene filas de datos.');
-            if (!is_dir(INV_DIR)) @mkdir(INV_DIR, 0770, true);
-            @file_put_contents($pend . '.json', json_encode(['nombre' => $nombre, 'datos' => $datos], JSON_UNESCAPED_UNICODE));
-            @file_put_contents($pend . '.bin', $bin);
+            inv_pendiente_poner($pend, $nombre, $datos, $bin);
             ir('?v=revisar');
         case 'aplicar':
-            $p = json_decode((string)@file_get_contents($pend . '.json'), true);
-            if (!is_array($p)) ir('', 'err', 'No hay una carga pendiente. Suba el archivo de nuevo.');
-            if (!inv_guardar($p['datos'], $yo, $p['nombre'], (string)@file_get_contents($pend . '.bin'))) ir('?v=revisar', 'err', 'No se pudo guardar. Revise los permisos de ' . INV_DIR . '.');
-            @unlink($pend . '.json'); @unlink($pend . '.bin');
+            $p = inv_pendiente($pend);
+            if (!$p) ir('', 'err', 'No hay una carga pendiente. Suba el archivo de nuevo.');
+            if (!inv_guardar($p['datos'], $yo, $p['nombre'], $p['original'])) ir('?v=revisar', 'err', 'No se pudo guardar en la base de datos.');
+            inv_pendiente_borrar($pend);
             actas_log("inventario: $yo cargó {$p['nombre']} (" . count($p['datos']['empleados']) . ' colaboradores, ' . count($p['datos']['equipos']) . ' equipos)');
             ir('', 'ok', 'Base de datos actualizada con «' . $p['nombre'] . '»: ' . count($p['datos']['empleados']) . ' colaboradores y ' . count($p['datos']['equipos']) . ' equipos. Las actas ya usan los datos nuevos.');
         case 'cancelar':
-            @unlink($pend . '.json'); @unlink($pend . '.bin');
+            inv_pendiente_borrar($pend);
             ir('', 'warn', 'Carga cancelada. La base de datos no cambió.');
         case 'restaurar':
             $n = (string)($_POST['version'] ?? '');
-            $d = preg_match('/^inventario-\d{8}-\d{6}\.json$/', $n) ? json_decode((string)@file_get_contents(INV_DIR . '/historial/' . $n), true) : null;
-            if (!is_array($d)) ir('?v=historial', 'err', 'Esa versión ya no existe.');
-            $origen = $d['archivo'] ?? $n; $orig = $d['original'] ?? null;
-            if (!inv_guardar($d, $yo, $origen, null)) ir('?v=historial', 'err', 'No se pudo restaurar.');
-            if ($orig) { $a = inv_cargar(); $a['original'] = $orig; @file_put_contents(INV_DIR . '/inventario.json', json_encode($a, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); }
+            $d = ctype_digit($n) ? inv_version((int)$n) : null;
+            if (!$d) ir('?v=historial', 'err', 'Esa versión ya no existe.');
+            if (!inv_guardar($d, $yo, $d['archivo'], $d['original'])) ir('?v=historial', 'err', 'No se pudo restaurar.');
             actas_log("inventario: $yo restauró la versión $n");
-            ir('?v=historial', 'ok', 'Se restauró la versión del ' . date('d/m/Y h:i a', (int)($d['actualizado'] ?? 0)) . ' (' . $origen . ').');
+            ir('?v=historial', 'ok', 'Se restauró la versión del ' . date('d/m/Y h:i a', $d['actualizado']) . ' (' . $d['archivo'] . ').');
     }
     ir();
 }
@@ -69,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $v = (string)($_GET['v'] ?? 'inicio');
 $inv = inv_cargar();
 $flash = $_SESSION['flash_inv'] ?? null; unset($_SESSION['flash_inv']);
-$pendiente = json_decode((string)@file_get_contents($pend . '.json'), true);
+$pendiente = inv_pendiente($pend);
 if ($v === 'revisar' && !is_array($pendiente)) $v = 'inicio';
 $fmt = fn($t) => $t ? date('d/m/Y h:i a', (int)$t) : '—';
 $eqDe = function (array $e) use ($inv) { return array_map(fn($q) => $q['hostname'] ?: $q['serie'], inv_equipos_de($e, $inv['equipos'] ?? [])); };
@@ -225,7 +222,7 @@ details .tw{margin-top:8px;max-height:320px;overflow:auto}
       <tbody>
         <tr style="background:var(--band)"><td><strong><?= e($fmt($inv['actualizado'] ?? 0)) ?></strong><small>Vigente</small></td><td><?= e((string)($inv['por'] ?? '—')) ?></td><td><?= e((string)($inv['archivo'] ?? '—')) ?><?php if (!empty($inv['original'])): ?> <a href="?descargar=<?= urlencode($inv['original']) ?>">descargar</a><?php endif; ?></td><td><?= count($inv['empleados'] ?? []) ?></td><td><?= count($inv['equipos'] ?? []) ?></td><td></td></tr>
 <?php foreach ($h as $x): ?>
-        <tr><td><?= e($fmt($x['actualizado'])) ?></td><td><?= e($x['por']) ?></td><td><?= e($x['nombre']) ?><?php if ($x['original'] && is_file(INV_DIR . '/historial/' . $x['original'])): ?> <a href="?descargar=<?= urlencode($x['original']) ?>">descargar</a><?php endif; ?></td><td><?= $x['empleados'] ?></td><td><?= $x['equipos'] ?></td>
+        <tr><td><?= e($fmt($x['actualizado'])) ?></td><td><?= e($x['por']) ?></td><td><?= e($x['nombre']) ?><?php if ($x['original']): ?> <a href="?descargar=<?= urlencode($x['original']) ?>">descargar</a><?php endif; ?></td><td><?= $x['empleados'] ?></td><td><?= $x['equipos'] ?></td>
           <td style="text-align:right"><form method="post" onsubmit="return confirm('¿Volver a los datos del <?= e($fmt($x['actualizado'])) ?>? La versión vigente queda guardada en el historial.')"><input type="hidden" name="csrf" value="<?= e($csrf) ?>"><input type="hidden" name="accion" value="restaurar"><input type="hidden" name="version" value="<?= e($x['archivo']) ?>"><button class="b">Restaurar</button></form></td></tr>
 <?php endforeach; ?>
       </tbody></table>

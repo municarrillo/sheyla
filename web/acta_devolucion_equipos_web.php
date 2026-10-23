@@ -33,7 +33,7 @@ label{display:block;font-size:13px;font-weight:600;color:var(--mute);margin-bott
 input[type=text],input[type=email],input[type=date],select,textarea{width:100%;font:inherit;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:3px;padding:7px 8px}
 input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .full{grid-column:1/-1}
-.tipo{display:flex;gap:18px;align-items:center;padding-top:4px}
+.tipo{display:flex;flex-wrap:wrap;gap:18px;align-items:center;padding-top:4px}
 .tipo label{display:flex;gap:6px;align-items:center;color:var(--ink);font-weight:500;margin:0}
 .tw{overflow-x:auto;padding:0 16px 14px}
 table{border-collapse:collapse;width:100%;min-width:720px}
@@ -324,7 +324,7 @@ th.del,td.del{width:46px;text-align:center}
     <div><label for="correo">Correo institucional *</label><input type="email" id="correo" required></div>
     <div><label for="fecha">Fecha de devolución *</label><input type="date" id="fecha" required></div>
     <div class="full"><label>Tipo de equipo</label>
-      <div class="tipo"><label><input type="radio" name="tipo" value="All in One" checked> All in One</label><label><input type="radio" name="tipo" value="Laptop"> Laptop</label><label><input type="radio" name="tipo" value="Tablet"> Tablet</label></div></div>
+      <div class="tipo"><label><input type="radio" name="tipo" value="All in One" checked> All in One</label><label><input type="radio" name="tipo" value="Laptop"> Laptop</label><label><input type="radio" name="tipo" value="Tablet"> Tablet</label><label><input type="radio" name="tipo" value="Escritorio"> Escritorio</label></div></div>
   </div>
 
   <div class="band">ASIGNACIÓN DE TIPO DE CÓMPUTO</div>
@@ -362,6 +362,7 @@ th.del,td.del{width:46px;text-align:center}
 <section class="sheet reg" id="reg" hidden><div class="band">ACTAS DE DEVOLUCIÓN REGISTRADAS</div><div id="lst"><div class="hint">Cargando el registro…</div></div></section>
 
 <?php reg_cliente_js(actas_csrf()); ?>
+<?php require_once __DIR__ . '/../actas-app/actas_pdf_ui.php'; actas_pdf_ui_js('acta_devolucion', actas_registro($usuario)); ?>
 <script>
 const $=s=>document.querySelector(s);
 const Y=()=>parseInt($('#yr').value,10)||new Date().getFullYear();
@@ -437,7 +438,7 @@ async function saveActa(){const m=$('#msg');
  try{const o=collect();const id=o.cons+'-'+o.yr,antes=editando;await db.doc('actas/'+id).set(o);editando=id;touched=true;
   m.textContent='Acta '+id+(antes?' actualizada':' guardada')+' en el servidor. También puede imprimirla o guardarla en PDF.';
   franjaEdicion($('#f'),'Editando el acta N.° '+id+'. Si vuelve a finalizar, se actualiza este registro.',reset);refresh();
-  avisoExito({titulo:antes?'Acta actualizada':'Acta finalizada y guardada',texto:'El Acta de Devolución N.° '+id+(o.nombre?' de '+o.nombre:'')+(antes?' se actualizó':' quedó guardada')+' en el servidor; se puede consultar desde cualquier computadora.\nPara conservarla de forma oficial, imprímala o guárdela en PDF.',botones:[{t:'Imprimir / guardar PDF',p:true,f:()=>print()},{t:'Llenar una nueva',f:()=>reset()},{t:'Cerrar'}]})}
+  avisoExito({titulo:antes?'Acta actualizada':'Acta finalizada y guardada',texto:'El Acta de Devolución N.° '+id+(o.nombre?' de '+o.nombre:'')+(antes?' se actualizó':' quedó guardada')+' en el servidor; se puede consultar desde cualquier computadora.\nPara conservarla de forma oficial, imprímala o guárdela en PDF.',botones:[...botonesAvisoPdf({...o,id}),{t:'Imprimir',f:()=>print()},{t:'Llenar una nueva',f:()=>reset()},{t:'Cerrar'}]})}
  catch(e){m.textContent='Acta firmada, pero no se pudo guardar en el servidor: '+e.message+' Guárdela en PDF o intente de nuevo.'}}
 function nextNum(){if(touched)return;const y=Y();const n=Math.max(0,...list.filter(a=>a.yr===y).map(a=>parseInt(a.cons,10)||0))+1;$('#cons').value=String(n).padStart(3,'0')}
 function openActa(a){$('#msg').textContent='';KEYS.forEach(k=>$('#'+k).value=a[k]||'');if(!a.ncol)$('#ncol').value=a.nombre||'';if(!a.fcol)$('#fcol').value=a.fecha||'';if(!a.ftic)$('#ftic').value=a.fecha||'';$('#yr').value=a.yr;
@@ -453,7 +454,7 @@ function openActa(a){$('#msg').textContent='';KEYS.forEach(k=>$('#'+k).value=a[k
 const LS='actas_devolucion_v1',REG=Registro('acta_devolucion');
 let editando=null;
 db={doc:p=>({set:async o=>{const j=await REG.guardar(p.split('/')[1],o,{original:editando||''});if(j.existe)throw new Error(j.error);return j}})};
-const panel={REG,etiqueta:'acta',lista:()=>list,editando:()=>editando,
+const panel={REG,etiqueta:'acta',lista:()=>list,editando:()=>editando,extras:a=>botonesPdf(a),
   titulo:a=>a.id,detalle:a=>[a.nombre,a.dep,(a.fecha||'').split('-').reverse().join('/'),'registró '+a._r.creado_por+(a._r.modificado_por?' · editó '+a._r.modificado_por:'')].filter(Boolean).join(' · '),
   abrir:async id=>{const r=await REG.ver(id);openActa({id:r.id,...r.datos});editando=r.id;touched=true;
     franjaEdicion($('#f'),'Editando el acta N.° '+r.id+'. Haga los cambios y pulse «Finalizar y generar acta» para actualizarla.',reset)},
@@ -471,6 +472,7 @@ async function refresh(){try{list=(await REG.lista()).map(r=>({...r.datos,id:r.i
  $('#f').addEventListener('reset',()=>{manual=false});})();
 </script>
 <?php require_once __DIR__ . '/../actas-app/autollenado.php'; inv_autollenado_js(); ?>
+<?php require_once __DIR__ . '/../actas-app/tecnicos.php'; tecnicos_js((string)(actas_registro($usuario)['nombre'] ?? '')); ?>
 <?php require __DIR__ . '/../actas-app/aviso.php'; ?>
 </body>
 </html>

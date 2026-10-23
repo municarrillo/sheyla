@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'nombre' => $nombre, 'correo' => $correo, 'rol' => $rol, 'activo' => true, 'permisos' => permisos_post(),
                 'forzar' => true, 'cambio' => time(), 'creado' => time(), 'creado_por' => $yo,
             ];
-            if (!actas_guardar_usuarios($us)) volver('err', 'No se pudo guardar. Revise los permisos de ' . ACTAS_USERS_FILE . '.');
+            if (!actas_guardar_usuarios($us)) volver('err', 'No se pudo guardar en la base de datos.');
             actas_log("admin=$yo creó usuario=$u rol=$rol modo=$modo");
             if ($modo === 'temporal') volver('ok', "Usuario «{$u}» creado. Contraseña temporal:", $temporal);
             $err = actas_enviar_enlace($u, 'invitacion');
@@ -122,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $c1 = (string)($_POST['clave1'] ?? ''); $c2 = (string)($_POST['clave2'] ?? '');
             if ($p = actas_problema_clave($u, $c1, $c2)) volver('err', $p, '', $ir);
             $forzar = !empty($_POST['forzar']);
-            if (!actas_cambiar_clave($u, $c1, $forzar)) volver('err', 'No se pudo guardar. Revise los permisos de ' . ACTAS_USERS_FILE . '.', '', $ir);
+            if (!actas_cambiar_clave($u, $c1, $forzar)) volver('err', 'No se pudo guardar en la base de datos.', '', $ir);
             actas_log("admin=$yo cambió la contraseña de usuario=$u forzar=" . ($forzar ? 'si' : 'no'));
             volver('ok', "Contraseña de «{$u}» actualizada." . ($forzar ? ' Al ingresar, el sistema le pedirá que cree una propia.' : '') . ' Si tenía una sesión abierta, se cerró.');
 

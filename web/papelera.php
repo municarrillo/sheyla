@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $d = form_papelera_cargar($clave);
             if ($d === null) volver('err', 'Ese formulario ya no está en la papelera.');
             $id = form_papelera_restaurar($clave, $yo);
-            if ($id === '') volver('err', 'No se pudo restaurar. Revise los permisos de ' . ACTAS_FORMS_DIR . '.');
+            if ($id === '') volver('err', 'No se pudo restaurar en la base de datos.');
             actas_log("admin=$yo restauró de la papelera formulario=$id");
             $f = form_cargar($id);
             volver('ok', '«' . ($f['titulo'] ?? $id) . '» se restauró' . (!empty($f['publicado']) ? ' y vuelve a aparecer en el menú.' : ' (está oculto: publíquelo desde el Constructor para que aparezca en el menú).'));

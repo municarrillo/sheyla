@@ -489,7 +489,7 @@ $('#fin').onclick=()=>{
   REG.guardar(o.id,o,{original:antes||'',reemplazar:true}).then(()=>{editando=o.id;
     $('#msg').style.color='var(--ink)';$('#msg').textContent='Bitácora del '+o.fecha.split('-').reverse().join('/')+' '+o.hora+(antes?' actualizada':' guardada')+' en el servidor. Use «Imprimir / guardar PDF» para conservarla.';
     franjaEdicion($('#f'),'Editando la bitácora del '+o.fecha.split('-').reverse().join('/')+' '+o.hora+'. Si vuelve a finalizar, se actualiza este registro.',reset);refresh();
-    avisoExito({titulo:antes?'Bitácora actualizada':'Bitácora finalizada y guardada',texto:'La bitácora del '+o.fecha.split('-').reverse().join('/')+' '+o.hora+(o.tec?' ('+o.tec+')':'')+(antes?' se actualizó':' quedó guardada')+' en el servidor; se puede consultar desde cualquier computadora.\nPara conservarla de forma oficial, imprímala o guárdela en PDF.',botones:[{t:'Imprimir / guardar PDF',p:true,f:()=>print()},{t:'Llenar una nueva',f:()=>reset()},{t:'Cerrar'}]})})
+    avisoExito({titulo:antes?'Bitácora actualizada':'Bitácora finalizada y guardada',texto:'La bitácora del '+o.fecha.split('-').reverse().join('/')+' '+o.hora+(o.tec?' ('+o.tec+')':'')+(antes?' se actualizó':' quedó guardada')+' en el servidor; se puede consultar desde cualquier computadora.\nPara conservarla de forma oficial, imprímala o guárdela en PDF.',botones:[{t:'Descargar PDF',p:true,f:()=>{location.href='actas_pdf.php?b='+encodeURIComponent(o.id)}},{t:'Imprimir',f:()=>print()},{t:'Llenar una nueva',f:()=>reset()},{t:'Cerrar'}]})})
   .catch(e=>{$('#msg').textContent='Bitácora firmada, pero no se pudo guardar en el servidor: '+e.message+' Guárdela en PDF o intente de nuevo.'})
   .finally(()=>{$('#fin').disabled=false});
   botonImprimir();
@@ -507,6 +507,7 @@ function abrir(a){$('#msg').textContent='';$('#fecha').value=a.fecha;$('#hora').
   else{let n=0;['1','2','3'].forEach(k=>DEF[k].forEach(x=>{n++;agregarPunto(k,x,(a.p||[]).includes(n))}));(a.extras||[]).forEach(x=>agregarPunto(x.s,x.t,x.ok))} // bitácoras guardadas con la versión anterior
   avance();pads.c1.clear();pads.c1.load(a.f1);botonImprimir();scrollTo({top:0,behavior:'smooth'})}
 const panel={REG,etiqueta:'bitácora',lista:()=>lista,editando:()=>editando,
+  extras:a=>{const b=document.createElement('button');b.type='button';b.className='pdf';b.textContent='Descargar PDF';b.title='Descargar esta bitácora firmada en PDF';b.onclick=()=>{location.href='actas_pdf.php?b='+encodeURIComponent(a.id)};return [b]},
   titulo:a=>(a.fecha||'').split('-').reverse().join('/')+' '+(a.hora||''),
   detalle:a=>{const n=a.hechos??(a.p||[]).length,tot=a.total||13;return [a.tec,n+'/'+tot+' puntos'+(n<tot?' (con observaciones)':''),'registró '+a._r.creado_por+(a._r.modificado_por?' · editó '+a._r.modificado_por:'')].filter(Boolean).join(' · ')},
   abrir:async id=>{const r=await REG.ver(id);abrir(r.datos);editando=r.id;
@@ -517,6 +518,7 @@ async function refresh(){try{lista=(await REG.lista()).map(r=>({...r.datos,id:r.
   panelRegistros(panel)}
 (async()=>{try{const n=await REG.migrar(LS,(k,v)=>v.id||k);if(n){$('#msg').style.color='var(--ink)';$('#msg').textContent='Se subieron al servidor '+n+' bitácora(s) que estaban guardadas solo en este navegador.'}}catch(e){}refresh()})();
 </script>
+<?php require_once __DIR__ . '/../actas-app/tecnicos.php'; tecnicos_js((string)(actas_registro($usuario)['nombre'] ?? '')); ?>
 <?php require __DIR__ . '/../actas-app/aviso.php'; ?>
 </body>
 </html>

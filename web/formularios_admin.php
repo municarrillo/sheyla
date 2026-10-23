@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && str_starts_with((string)($_SERVER['
     [$def, $err] = form_normalizar(is_array($in['def'] ?? null) ? $in['def'] : []);
     if ($def === null) { echo json_encode(['ok' => false, 'error' => $err], JSON_UNESCAPED_UNICODE); exit; }
     $nuevo = form_guardar($def, $yo, $id !== '' ? $id : null);
-    if ($nuevo === '') { echo json_encode(['ok' => false, 'error' => 'No se pudo guardar. Revise los permisos de ' . ACTAS_FORMS_DIR . '.']); exit; }
+    if ($nuevo === '') { echo json_encode(['ok' => false, 'error' => 'No se pudo guardar en la base de datos.']); exit; }
     if ($id === '') actas_otorgar($yo, 'f:' . $nuevo);   // quien lo crea tiene acceso automáticamente
     actas_log("usuario=$yo guardó formulario=$nuevo");
     echo json_encode(['ok' => true, 'id' => $nuevo, 'def' => form_cargar($nuevo)], JSON_UNESCAPED_UNICODE);
@@ -244,6 +244,12 @@ body.arrastrando,body.arrastrando *{cursor:grabbing!important;user-select:none}
 .borrar .restaurar{padding-top:12px;border-top:1px dashed var(--line)}
 .borrar .restaurar form{margin:0 6px 6px 0}
 @media(max-width:720px){.ed-top,.prop{grid-template-columns:1fr}.cmp-h .tp{min-width:0}.cmp-h .chip{display:none}.barra{padding:10px 14px;margin:0 -14px -14px}}
+.colores{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.colores .sw{width:34px;height:34px;border-radius:50%;border:3px solid var(--paper,#fff);background:var(--c);box-shadow:0 0 0 1px var(--line,#d3dbe5);cursor:pointer;color:#fff;font-weight:700;font-size:13px;padding:0;transition:transform .15s,box-shadow .15s}
+.colores .sw:hover{transform:scale(1.12)}
+.colores .sw.on{box-shadow:0 0 0 3px var(--c),0 0 0 5px color-mix(in srgb,var(--c) 30%,transparent);transform:scale(1.08)}
+.colores .sw:first-child{background-image:var(--c)}
+.colores .sw.on:not(:first-child)::before{content:"\2713";font-size:16px;line-height:28px}
 </style>
 <?php require_once __DIR__ . '/../actas-app/tema.php'; tema_estilos(); ?>
 </head>
@@ -390,6 +396,12 @@ function area(obj,k,rows=3,lineas=false,vivo){const t=el('textarea',{rows});t.va
   t.oninput=()=>{obj[k]=lineas?t.value.split('\n').map(x=>x.trim()).filter(Boolean):t.value;marcar();if(vivo)vivo()};return t}
 function chk(obj,k,texto,vivo){const i=el('input',{type:'checkbox'});i.checked=!!obj[k];i.onchange=()=>{obj[k]=i.checked;marcar();if(vivo)vivo()};return el('label',{class:'ck'},i,' '+texto)}
 function sel(obj,k,opciones,vivo){const s=el('select',{},Object.entries(opciones).map(([v,t])=>el('option',{value:v,text:t})));s.value=obj[k]??'';s.onchange=()=>{obj[k]=s.value;marcar();if(vivo)vivo()};return s}
+const COLORES=<?= json_encode(FORM_COLORES, JSON_UNESCAPED_UNICODE) ?>;
+function colores(obj){const w=el('div',{class:'colores',role:'radiogroup','aria-label':'Color del formulario'});
+  const op=(k,nom,hex)=>{const b=el('button',{type:'button',class:'sw'+((obj.color||'')===k?' on':''),title:nom,'aria-label':nom,role:'radio','aria-checked':(obj.color||'')===k?'true':'false',style:'--c:'+hex});
+    if(!k)b.textContent='A';b.onclick=()=>{obj.color=k;marcar();w.querySelectorAll('.sw').forEach(x=>{x.classList.remove('on');x.setAttribute('aria-checked','false')});b.classList.add('on');b.setAttribute('aria-checked','true')};return b};
+  w.append(op('','Automático','linear-gradient(135deg,#1f5fa8,#0f8a7e 50%,#d9731a)'));
+  Object.entries(COLORES).forEach(([k,[nom,hex]])=>w.append(op(k,nom,hex)));return w}
 function campo(lbl,ctrl,hint,full){return el('div',{class:full?'full':''},el('label',{text:lbl}),ctrl,hint?el('div',{class:'hint',text:hint}):null)}
 
 /* ---------- Condición (mostrar solo si…) ---------- */
@@ -453,6 +465,7 @@ function dibujar(){const ed=$('#editor');const y=scrollY;ed.innerHTML='';
     campo('Título *',inp(F,'titulo',{maxlength:120,placeholder:'Ej. Revisión mensual de UPS'})),
     campo('Subtítulo',inp(F,'subtitulo',{maxlength:120,placeholder:'Opcional'})),
     campo('Descripción o instrucciones',area(F,'descripcion',2),'Aparece debajo del encabezado.',true),
+    campo('Color en el menú principal',colores(F),'Así se distingue el formulario en el tablero. «Automático» le asigna uno fijo.',true),
     el('div',{class:'full chks'},chk(F,'publicado','Publicado: aparece en el menú de los usuarios con acceso'),chk(F,'numeracion','Numeración consecutiva (N.° 001-2026)'))));
   ed.append(d,el('p',{class:'ayuda-c',text:'Haga clic en un campo para editarlo. Use las flechas para ordenar. Las condiciones permiten que un campo o una sección aparezcan solo según otra respuesta.'}));
   F.secciones.forEach((s,si)=>{

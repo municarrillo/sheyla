@@ -92,8 +92,7 @@ if (isset($_GET['pdf'])) {
     $todas = pres_leer('reservas'); $r = $todas[(string)$_GET['pdf']] ?? null;
     if (!$r || !puede_ver($r)) { http_response_code(404); exit('No encontrado'); }
     $doc = isset(PRES_DOCS[$_GET['doc'] ?? '']) ? (string)$_GET['doc'] : pres_doc_actual($r);
-    $ruta = pres_pdf_ruta($r['id'], $doc);
-    $bin = is_file($ruta) ? (string)file_get_contents($ruta) : pres_pdf($r, pres_leer('activos'), $doc);
+    $bin = pres_pdf_guardado((string)$r['id'], $doc) ?? pres_pdf($r, pres_leer('activos'), $doc);
     header('Content-Type: application/pdf');
     header('Content-Disposition: ' . (isset($_GET['descargar']) ? 'attachment' : 'inline') . '; filename="' . $r['id'] . '-' . $doc . '.pdf"');
     header('Content-Length: ' . strlen($bin));
@@ -826,6 +825,7 @@ elseif ($v === 'catalogo'):
 <?php endif; ?>
   </div>
 </main>
+<?php if ($esTI) { require_once __DIR__ . '/../actas-app/tecnicos.php'; tecnicos_js((string)($reg['nombre'] ?? '')); } ?>
 <?php require __DIR__ . '/../actas-app/aviso.php'; ?>
 </body>
 </html>

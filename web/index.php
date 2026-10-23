@@ -8,6 +8,7 @@ $extras = array_values(array_filter(form_listar(true), fn($f) => actas_puede($mi
 $verPres = actas_puede($miReg, 'prestamos');
 $esConstructor = !$esAdmin && actas_puede($miReg, 'constructor');
 $verDatos = !$esAdmin && actas_puede($miReg, 'datos');
+$verTec = !$esAdmin && actas_puede($miReg, 'tecnicos');
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 $flecha = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
@@ -19,7 +20,7 @@ $fijos = [
 $fijos = array_values(array_filter($fijos, fn($fx) => form_fijo_activo($fx[0]) && actas_puede($miReg, $fx[0])));
 $total = count($extras) + ($verPres ? 1 : 0) + count($fijos);
 // Quien tiene acceso a un solo formulario (y no administra ni construye) entra directo a él
-if (!$esAdmin && !$esConstructor && !$verDatos && $total === 1 && !$flash) {
+if (!$esAdmin && !$esConstructor && !$verDatos && !$verTec && $total === 1 && !$flash) {
     header('Location: ' . ($fijos ? $fijos[0][1] : ($verPres ? 'prestamos.php' : 'formulario.php?id=' . urlencode($extras[0]['id']))));
     exit;
 }
@@ -72,6 +73,20 @@ footer{text-align:center;margin-top:22px;font-size:13px;color:var(--mute)}
   .opt{display:grid;grid-template-columns:44px 1fr;column-gap:14px;row-gap:2px;padding:14px}.ico{grid-row:1/4;margin:0;width:44px;height:44px}.opt em{padding-top:6px}
   main.inicio{padding:0 12px 26px}.panel-menu{padding:20px 16px}.tit{flex-direction:column;gap:2px}}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .opt.nuevo .ico svg{stroke:var(--gold)}}
+
+/* ===== Cada formulario con su color ===== */
+.opt{--c:#1f5fa8;--ct:color-mix(in srgb,var(--c) 9%,var(--paper));border-color:color-mix(in srgb,var(--c) 22%,var(--line))!important;
+  background-color:var(--paper)!important;box-shadow:0 1px 0 color-mix(in srgb,var(--c) 10%,transparent);overflow:hidden}
+.opt::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:linear-gradient(180deg,var(--c),color-mix(in srgb,var(--c) 55%,#fff))}
+.opt .ico,.opt.nuevo .ico{background:linear-gradient(140deg,var(--c),color-mix(in srgb,var(--c) 70%,#000))!important;box-shadow:0 8px 18px -8px color-mix(in srgb,var(--c) 85%,transparent)}
+.opt .ico svg,.opt.nuevo .ico svg,.opt:hover .ico svg{stroke:#fff!important}
+.opt strong{color:color-mix(in srgb,var(--c) 70%,var(--ink))}
+.opt em{color:#fff!important;background:var(--c);padding:7px 14px!important;margin-top:auto;border-radius:999px;box-shadow:0 6px 14px -8px var(--c);transition:filter .2s,box-shadow .2s,transform .2s}
+.opt:hover{border-color:var(--c)!important;background-color:var(--ct)!important;box-shadow:0 22px 40px -22px color-mix(in srgb,var(--c) 80%,transparent),0 0 0 1px var(--c)!important}
+.opt:hover .ico{background:linear-gradient(140deg,color-mix(in srgb,var(--c) 85%,#fff),var(--c))!important}
+.opt:hover em{filter:brightness(1.08);box-shadow:0 10px 20px -8px var(--c)}
+.opt:focus-visible{outline-color:var(--c)!important}
+@media (prefers-color-scheme:dark){.opt strong{color:color-mix(in srgb,var(--c) 45%,#fff)}.opt{--ct:color-mix(in srgb,var(--c) 16%,var(--paper))}}
 </style>
 <?php require_once __DIR__ . '/../actas-app/tema.php'; tema_estilos(); ?>
 </head>
@@ -95,24 +110,25 @@ footer{text-align:center;margin-top:22px;font-size:13px;color:var(--mute)}
     <h2 class="tit" id="t-form">Formularios <span><?= $total ?> disponible<?= $total === 1 ? '' : 's' ?></span></h2>
     <nav class="opts">
 <?php foreach ($fijos as $fx): if (!form_fijo_activo($fx[0])) continue; ?>
-      <a class="opt" href="<?= $fx[1] ?>"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><?= $fx[4] ?></svg></span><strong><?= e($fx[2]) ?></strong><span class="d"><?= e($fx[3]) ?></span><em>Abrir formulario<?= $flecha ?></em></a>
+      <a class="opt" href="<?= $fx[1] ?>" style="--c:<?= form_color($fx[0]) ?>"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><?= $fx[4] ?></svg></span><strong><?= e($fx[2]) ?></strong><span class="d"><?= e($fx[3]) ?></span><em>Abrir formulario<?= $flecha ?></em></a>
 <?php endforeach; ?>
 <?php if ($verPres): ?>
-      <a class="opt" href="prestamos.php"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="14" height="9" rx="1.5"/><circle cx="10" cy="9.5" r="2.2"/><path d="M17 8l4-1.5v6L17 11M6 14l-1.5 4M14 14l1.5 4"/></svg></span><strong>Préstamo de Activos</strong><span class="d">Reservas, entregas y devoluciones de proyectores, computadoras y herramientas.</span><em>Abrir módulo<?= $flecha ?></em></a>
+      <a class="opt" href="prestamos.php" style="--c:<?= form_color('prestamos') ?>"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="14" height="9" rx="1.5"/><circle cx="10" cy="9.5" r="2.2"/><path d="M17 8l4-1.5v6L17 11M6 14l-1.5 4M14 14l1.5 4"/></svg></span><strong>Préstamo de Activos</strong><span class="d">Reservas, entregas y devoluciones de proyectores, computadoras y herramientas.</span><em>Abrir módulo<?= $flecha ?></em></a>
 <?php endif; ?>
 <?php foreach ($extras as $fx): ?>
-      <a class="opt nuevo" href="formulario.php?id=<?= urlencode($fx['id']) ?>"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3.5" width="14" height="18" rx="1.5"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></svg></span><strong><?= e($fx['titulo']) ?></strong><span class="d"><?= e($fx['subtitulo'] ?: ($fx['descripcion'] ?: 'Formulario de TI')) ?></span><em>Abrir formulario<?= $flecha ?></em></a>
+      <a class="opt nuevo" href="formulario.php?id=<?= urlencode($fx['id']) ?>" style="--c:<?= form_color('f:' . $fx['id'], $fx) ?>"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3.5" width="14" height="18" rx="1.5"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></svg></span><strong><?= e($fx['titulo']) ?></strong><span class="d"><?= e($fx['subtitulo'] ?: ($fx['descripcion'] ?: 'Formulario de TI')) ?></span><em>Abrir formulario<?= $flecha ?></em></a>
 <?php endforeach; ?>
 <?php if ($total === 0): ?>
       <p class="d"><?= $esAdmin ? 'No hay formularios publicados. Cree uno desde el Constructor de formularios o restaure alguno desde la Papelera.' : 'Todavía no tiene acceso a ningún formulario. Solicítelo a un administrador del sistema.' ?></p>
 <?php endif; ?>
     </nav>
   </section>
-<?php if ($esConstructor || $verDatos): ?>
+<?php if ($esConstructor || $verDatos || $verTec): ?>
   <section class="panel-menu" aria-labelledby="t-cons">
     <h2 class="tit" id="t-cons">Mis herramientas</h2>
     <nav class="tools">
 <?php if ($verDatos): ?>      <a class="tool" href="colaboradores.php"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6"/></svg>Base de datos de colaboradores</a>
+<?php endif; if ($verTec): ?>      <a class="tool" href="tecnicos.php"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7.5" r="3.3"/><path d="M5.5 20c.7-3.6 3.3-5.8 6.5-5.8s5.8 2.2 6.5 5.8"/><path d="M15.5 4.5l2-1.5M8.5 4.5l-2-1.5"/><path d="M9.5 14.6l2.5 2.4 2.5-2.4"/></svg>Técnicos de TI</a>
 <?php endif; if ($esConstructor): ?>      <a class="tool" href="formularios_admin.php"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="1.5"/><path d="M8 8h8M8 12h5M8 16h3"/><path d="M14.5 17.5l1.2-3.2 3.6-3.6 2 2-3.6 3.6z"/></svg>Constructor de formularios</a>
 <?php endif; ?>
     </nav>
@@ -125,6 +141,7 @@ footer{text-align:center;margin-top:22px;font-size:13px;color:var(--mute)}
       <a class="tool" href="formularios_admin.php"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="1.5"/><path d="M8 8h8M8 12h5M8 16h3"/><path d="M14.5 17.5l1.2-3.2 3.6-3.6 2 2-3.6 3.6z"/></svg>Constructor de formularios</a>
       <a class="tool" href="usuarios_admin.php"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3.2 2.9-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15.8 14.2c2.3.1 4.1 1.6 4.7 4.8"/></svg>Mantenimiento de usuarios</a>
       <a class="tool" href="colaboradores.php"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6"/></svg>Base de datos de colaboradores</a>
+      <a class="tool" href="tecnicos.php"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7.5" r="3.3"/><path d="M5.5 20c.7-3.6 3.3-5.8 6.5-5.8s5.8 2.2 6.5 5.8"/><path d="M15.5 4.5l2-1.5M8.5 4.5l-2-1.5"/><path d="M9.5 14.6l2.5 2.4 2.5-2.4"/></svg>Técnicos de TI</a>
       <a class="tool peligro" href="formularios_admin.php?eliminar=1#borrar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></svg>Eliminar formularios</a>
       <a class="tool" href="papelera.php"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 19.5l-3-5.2 2.6-1.5M4 14.3l6-.1M17 19.5h-6M17 19.5l3-5.2-2.6-1.5M12 4.5l3 5.2-2.6 1.5M12 4.5L9 9.7"/></svg>Papelera<?php if ($enPap): ?><span class="n" title="Elementos en la papelera"><?= $enPap ?></span><?php endif; ?></a>
     </nav>

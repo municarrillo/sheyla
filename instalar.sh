@@ -1,5 +1,5 @@
 #!/bin/bash
-# Instalador de Actas TIC con inicio de sesión y recuperación de contraseña por correo
+# Instalador de Actas TIC (PHP + Apache + MySQL) con inicio de sesión y recuperación de contraseña por correo
 # Uso (como root):  bash instalar.sh
 # Se puede ejecutar de nuevo para actualizar: respalda lo anterior y conserva usuarios y configuración.
 set -euo pipefail
@@ -15,21 +15,29 @@ RESPALDO=/root/respaldo-actas-$(date +%Y%m%d-%H%M%S)
 [ "$(id -u)" -eq 0 ] || { echo "Ejecute como root:  sudo su  y luego  bash $0"; exit 1; }
 [ -f "$ORIGEN/web/login.php" ] && [ -f "$ORIGEN/app/auth.php" ] || { echo "No encuentro las carpetas web/ y app/ junto a este script."; exit 1; }
 
-echo "== 1. Verificando PHP y el envío de correo"
+BASE=actas_tic
+echo "== 1. Verificando PHP, MySQL y el envío de correo"
 PAQ=""
 command -v php >/dev/null 2>&1 && apache2ctl -M 2>/dev/null | grep -qE 'php[0-9._]*_module|proxy_fcgi_module' || PAQ="$PAQ php libapache2-mod-php"
+php -m 2>/dev/null | grep -qi '^pdo_mysql$' || PAQ="$PAQ php-mysql"
+# Servidor MySQL (si ya hay MySQL o MariaDB instalado, se usa ese)
+command -v mysqld >/dev/null 2>&1 || command -v mariadbd >/dev/null 2>&1 || PAQ="$PAQ mysql-server"
 command -v msmtp >/dev/null 2>&1 || PAQ="$PAQ msmtp msmtp-mta ca-certificates"
 if [ -n "$PAQ" ]; then
   echo "   Instalando:$PAQ"
   apt-get update -qq
   apt-get install -y $PAQ
+  REINICIAR_APACHE=1
 fi
 php -v | head -1
+if systemctl list-unit-files 2>/dev/null | grep -q '^mysql\.service'; then SERV_BD=mysql; else SERV_BD=mariadb; fi
+systemctl enable --now "$SERV_BD" >/dev/null 2>&1 || true
+mysql --version
 
 echo "== 2. Respaldando archivos anteriores en $RESPALDO"
 mkdir -p "$RESPALDO"
 for f in index.html acta_entrega_equipos_web.html acta_devolucion_equipos_web.html \
-         index.php login.php logout.php olvido.php restablecer.php cambiar_clave.php usuarios_admin.php prestamos.php registros.php inventario.php colaboradores.php bitacora_mantenimiento.php checklist_equipos.php formulario.php formularios_admin.php papelera.php \
+         index.php login.php logout.php olvido.php restablecer.php cambiar_clave.php usuarios_admin.php prestamos.php registros.php inventario.php colaboradores.php actas_pdf.php tecnicos.php bitacora_mantenimiento.php checklist_equipos.php formulario.php formularios_admin.php papelera.php \
          acta_entrega_equipos_web.php acta_devolucion_equipos_web.php; do
   if [ -e "$WEB/$f" ]; then cp -a "$WEB/$f" "$RESPALDO/"; fi
 done
@@ -39,6 +47,7 @@ if [ -d "$DATOS/formularios" ]; then cp -a "$DATOS/formularios" "$RESPALDO/formu
 if [ -d "$DATOS/prestamos" ]; then cp -a "$DATOS/prestamos" "$RESPALDO/prestamos"; fi
 if [ -d "$DATOS/registros" ]; then cp -a "$DATOS/registros" "$RESPALDO/registros"; fi
 if [ -d "$DATOS/datos" ]; then cp -a "$DATOS/datos" "$RESPALDO/datos"; fi
+if mysql -e "USE $BASE" 2>/dev/null; then mysqldump --single-transaction --routines "$BASE" > "$RESPALDO/$BASE.sql" && echo "   Base de datos respaldada en $RESPALDO/$BASE.sql"; fi
 # Los .html viejos NO pueden quedar en la carpeta web: se podrían abrir sin iniciar sesión.
 rm -f "$WEB/index.html" "$WEB/acta_entrega_equipos_web.html" "$WEB/acta_devolucion_equipos_web.html"
 # Formularios retirados
@@ -48,30 +57,46 @@ echo "== 3. Copiando la aplicación"
 install -d -o root -g www-data -m 750 "$APP"
 install -o root -g www-data -m 640 "$ORIGEN"/app/*.php "$APP/"
 install -o root -g www-data -m 644 "$ORIGEN"/web/*.php "$WEB/"
-# www-data necesita escribir usuarios.json cuando alguien restablece su contraseña
-install -d -o root -g www-data -m 770 "$CONF"
-if [ -f "$CONF/usuarios.json" ]; then chown root:www-data "$CONF/usuarios.json"; chmod 660 "$CONF/usuarios.json"; fi
-install -d -o www-data -g www-data -m 700 "$DATOS" "$DATOS/intentos" "$DATOS/reset" "$DATOS/formularios" "$DATOS/formularios/papelera" "$DATOS/prestamos" "$DATOS/prestamos/pdf" "$DATOS/registros" "$DATOS/datos" "$DATOS/datos/historial"
-# El formulario «Préstamo de Activos» del constructor se reemplazó por el módulo de préstamos (prestamos.php)
-VIEJO="$DATOS/formularios/prestamo-de-activos.json"
-if [ -f "$VIEJO" ] && [ "$(php -r 'echo json_decode(file_get_contents($argv[1]),true)["modificado_por"]??"";' "$VIEJO")" = "instalador" ]; then
-  rm -f "$VIEJO"; echo "   Se retiró el formulario «Préstamo de Activos» anterior: ahora es el módulo de préstamos."
-fi
-# Formularios que vienen con el paquete: se instalan solo si no existen (no se pisan los que ya se editaron)
-for f in "$ORIGEN"/formularios/*.json; do
-  [ -e "$f" ] || continue
-  destino="$DATOS/formularios/$(basename "$f")"
-  if compgen -G "$DATOS/formularios/papelera/$(basename "$f" .json)__*.json" >/dev/null; then
-    echo "   Se omite «$(basename "$f" .json)»: está en la Papelera (restáurelo desde ahí si lo necesita)."
-  elif [ ! -e "$destino" ]; then
-    install -o www-data -g www-data -m 660 "$f" "$DATOS/formularios/"; echo "   Formulario agregado: $(basename "$f" .json)"
-  elif [ "$(php -r 'echo json_decode(file_get_contents($argv[1]),true)["modificado_por"]??"";' "$destino")" = "instalador" ]; then
-    # Nunca fue editado desde el constructor: se actualiza a la versión del paquete
-    install -o www-data -g www-data -m 660 "$f" "$DATOS/formularios/"; echo "   Formulario actualizado: $(basename "$f" .json)"
-  else
-    echo "   Se conserva «$(basename "$f" .json)» porque fue editado desde el constructor."
+install -d -o root -g www-data -m 750 "$CONF"
+# Los datos de la versión anterior (archivos JSON) se conservan solo como respaldo: ahora todo va en MySQL
+if [ -d "$DATOS" ]; then chown -R www-data:www-data "$DATOS"; fi
+
+echo "== 3b. Base de datos MySQL ($BASE)"
+# Hora de Costa Rica para las fechas que muestra MySQL
+for d in /etc/mysql/mysql.conf.d /etc/mysql/mariadb.conf.d; do
+  if [ -d "$d" ] && [ ! -f "$d/zz-actas-tic.cnf" ]; then
+    printf '[mysqld]\ndefault-time-zone = "-06:00"\n' > "$d/zz-actas-tic.cnf"; systemctl restart "$SERV_BD"; break
   fi
 done
+if [ ! -f "$CONF/db.php" ]; then
+  CLAVE_BD=$(openssl rand -hex 18)
+  mysql <<SQL
+CREATE DATABASE IF NOT EXISTS $BASE CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'actas'@'localhost' IDENTIFIED BY '$CLAVE_BD';
+ALTER USER 'actas'@'localhost' IDENTIFIED BY '$CLAVE_BD';
+GRANT ALL PRIVILEGES ON $BASE.* TO 'actas'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+  cat > "$CONF/db.php" <<PHP
+<?php
+// Conexión de Actas TIC a MySQL (generado por el instalador el $(date '+%d/%m/%Y %H:%M')).
+return ['host' => 'localhost', 'puerto' => 3306, 'base' => '$BASE', 'usuario' => 'actas', 'clave' => '$CLAVE_BD'];
+PHP
+  echo "   Se creó la base «$BASE» y el usuario MySQL «actas» (la clave está en $CONF/db.php)."
+else
+  echo "   Ya existe $CONF/db.php; se usa esa conexión."
+fi
+chown root:www-data "$CONF/db.php"; chmod 640 "$CONF/db.php"
+# Crea las tablas, importa los datos de la versión anterior (solo la primera vez) e instala los formularios del paquete
+php "$APP/bd_migrar.php" --datos="$DATOS" --usuarios="$CONF/usuarios.json" --paquete="$ORIGEN/formularios"
+# Respaldo diario automático de la base (se guardan 30 días en /var/backups/actas-tic)
+cat > /etc/cron.daily/actas-tic-respaldo <<'CRON'
+#!/bin/sh
+mkdir -p /var/backups/actas-tic && chmod 700 /var/backups/actas-tic
+mysqldump --single-transaction actas_tic | gzip > /var/backups/actas-tic/actas_tic-$(date +%F).sql.gz
+find /var/backups/actas-tic -name 'actas_tic-*.sql.gz' -mtime +30 -delete
+CRON
+chmod 755 /etc/cron.daily/actas-tic-respaldo
 
 echo "== 4. Configuración de recuperación de contraseña ($CONF/config.json)"
 if [ ! -f "$CONF/config.json" ]; then
@@ -98,7 +123,7 @@ fi
 
 echo "== 6. Recargando Apache"
 apache2ctl configtest
-systemctl reload apache2
+if [ "${REINICIAR_APACHE:-0}" = "1" ]; then systemctl restart apache2; else systemctl reload apache2; fi
 
 echo "== 7. Comprobando"
 CUERPO=$(curl -s http://localhost/login.php || true)
@@ -109,10 +134,7 @@ elif echo "$CUERPO" | grep -q "Acceso exclusivo personal de TI"; then
 else
   echo "   AVISO: no pude comprobar http://localhost/login.php (revise apache2ctl -S)."
 fi
-if su -s /bin/sh www-data -c "test -w '$DATOS/registros'"; then echo "   OK: Apache puede guardar las actas y registros."; else echo "   ERROR: Apache no puede escribir en $DATOS/registros"; fi
-if su -s /bin/sh www-data -c "test -w '$DATOS/prestamos'"; then echo "   OK: Apache puede guardar reservas de préstamos."; else echo "   ERROR: Apache no puede escribir en $DATOS/prestamos"; fi
-if su -s /bin/sh www-data -c "test -w '$DATOS/datos'"; then echo "   OK: Apache puede guardar la base de datos de colaboradores."; else echo "   ERROR: Apache no puede escribir en $DATOS/datos"; fi
-if su -s /bin/sh www-data -c "test -w '$DATOS/formularios'"; then echo "   OK: Apache puede guardar formularios del constructor."; else echo "   ERROR: Apache no puede escribir en $DATOS/formularios"; fi
+if su -s /bin/sh www-data -c "php '$APP/bd_migrar.php' --probar" ; then echo "   OK: Apache se conecta a MySQL; actas, préstamos y formularios se guardan en la base «$BASE»."; else echo "   ERROR: Apache no puede conectarse a MySQL (revise $CONF/db.php y: systemctl status $SERV_BD)"; fi
 CODIGO=$(curl -s -o /dev/null -w '%{http_code}' http://localhost/acta_entrega_equipos_web.php || true)
 if [ "$CODIGO" = "302" ]; then echo "   OK: los formularios redirigen al login si no hay sesión."; else echo "   AVISO: el formulario respondió $CODIGO (se esperaba 302)."; fi
 
@@ -135,6 +157,7 @@ fi
 echo
 echo "Listo. Abra $(php -r 'echo json_decode(file_get_contents("/etc/actas/config.json"),true)["url_base"] ?? "";')/ desde cualquier PC de la red."
 echo "Respaldo de lo anterior: $RESPALDO"
+echo "Base de datos MySQL: $BASE (respaldo diario en /var/backups/actas-tic). Para consultarla:  sudo mysql $BASE"
 echo "Para agregar usuarios: ingrese como administrador y use «Mantenimiento de usuarios» en el menú."
 if [ "${SMTP_PENDIENTE:-0}" = "1" ]; then
   echo

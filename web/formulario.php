@@ -480,6 +480,7 @@ input[type=number],input[type=time]{padding:2px 6px;border-radius:2px;background
 </section>
 
 <?php reg_cliente_js(actas_csrf()); ?>
+<?php if (!$enPapelera) { require_once __DIR__ . '/../actas-app/actas_pdf_ui.php'; actas_pdf_ui_js('f:' . $def['id'], $reg); } ?>
 <script>
 const DEF=<?= form_json_script($def) ?>;
 const YO={usuario:<?= form_json_script($usuario) ?>,nombre:<?= form_json_script($nombre) ?>};
@@ -694,7 +695,7 @@ $('#fin').onclick=()=>{
   REG.guardar(r.id,r,{original:antes||'',reemplazar:true}).then(async()=>{editando=r.id;
     const m=$('#msg');m.style.color='var(--ink)';m.textContent='Registro '+(DEF.numeracion?'N.° '+r.id+' ':'')+(antes?'actualizado':'guardado')+' en el servidor ('+new Date().toLocaleString('es-CR',{dateStyle:'short',timeStyle:'short'})+'). Use «Imprimir / guardar PDF» para conservarlo.';
     tocado=true;botonImprimir();await recargar();marcarEdicion();
-    avisoExito({titulo:antes?'Registro actualizado':'Formulario finalizado y guardado',texto:'«'+DEF.titulo+'»'+(DEF.numeracion?' N.° '+r.id:'')+(antes?' se actualizó':' quedó guardado')+' en el servidor; se puede consultar desde cualquier computadora.\nPara conservarlo de forma oficial, imprímalo o guárdelo en PDF.',botones:[{t:'Imprimir / guardar PDF',p:true,f:()=>print()},{t:'Llenar uno nuevo',f:()=>limpiar()},{t:'Cerrar'}]})})
+    avisoExito({titulo:antes?'Registro actualizado':'Formulario finalizado y guardado',texto:'«'+DEF.titulo+'»'+(DEF.numeracion?' N.° '+r.id:'')+(antes?' se actualizó':' quedó guardado')+' en el servidor; se puede consultar desde cualquier computadora.\nPara conservarlo de forma oficial, imprímalo o guárdelo en PDF.',botones:[...(typeof botonesAvisoPdf==='function'?botonesAvisoPdf(r):[]),{t:'Imprimir',p:typeof botonesAvisoPdf!=='function',f:()=>print()},{t:'Llenar uno nuevo',f:()=>limpiar()},{t:'Cerrar'}]})})
   .catch(e=>aviso('No se pudo guardar en el servidor: '+e.message+' Imprímalo o guárdelo en PDF e intente de nuevo.'))
   .finally(()=>{$('#fin').disabled=false})};
 
@@ -726,7 +727,7 @@ function listar(){const box=$('#lst');box.innerHTML='';const l=filtrados(),tot=O
   l.forEach(r=>{const t=el('div',{},el('strong',{text:DEF.numeracion?'N.° '+r.id:fecha(r.at)}),
       el('small',{text:' · '+[DEF.numeracion?fecha(r.at):null,...resumibles.map(c=>textoPlano(c,r.v[c.id])),r.usuario,r._r&&r._r.modificado_por?'editó '+r._r.modificado_por:null].filter(Boolean).join(' · ')}));
     const b=el('button',{type:'button'},'Abrir / editar');b.onclick=async()=>{b.disabled=true;try{await abrirRegistro(r.id)}catch(e){alert(e.message)}b.disabled=false};
-    const acc=el('div',{class:'acc'},b);
+    const acc=el('div',{class:'acc'},b);if(typeof botonesPdf==='function')acc.append(...botonesPdf(r));
     if(r._r&&r._r.puede_eliminar){const d=el('button',{type:'button',class:'del'},'Eliminar');
       d.onclick=async()=>{if(!confirm('¿Eliminar el registro '+(DEF.numeracion?'N.° '+r.id:'del '+fecha(r.at))+'?\n\nDejará de aparecer para todos. Si ya lo imprimió, el PDF sigue siendo válido.'))return;
         d.disabled=true;try{await REG.eliminar(r.id);if(editando===r.id)limpiar();await recargar()}catch(e){alert(e.message);d.disabled=false}};acc.append(d)}
@@ -743,6 +744,8 @@ $('#csv').onclick=()=>{const l=filtrados();if(!l.length){alert('No hay registros
 autollenar();siguiente();cambio();listar();
 if(REG)(async()=>{try{const n=await REG.migrar(LS);if(n)aviso('Se subieron al servidor '+n+' registro(s) que estaban guardados solo en este navegador.')}catch(e){}recargar()})();
 </script>
+<?php if (!$enPapelera) { require_once __DIR__ . '/../actas-app/autollenado.php'; inv_autollenado_form_js($def['id']); } ?>
+<?php require_once __DIR__ . '/../actas-app/tecnicos.php'; tecnicos_js((string)(actas_registro($usuario)['nombre'] ?? '')); ?>
 <?php require __DIR__ . '/../actas-app/aviso.php'; ?>
 </body>
 </html>

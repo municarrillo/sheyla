@@ -1,14 +1,16 @@
 <?php
 /**
- * Préstamo de activos: catálogo de activos prestables y reservas, guardados en el servidor.
- *   /var/lib/actas/prestamos/activos.json   catálogo (lo administra TI)
- *   /var/lib/actas/prestamos/reservas.json  reservas, entregas y devoluciones
- * Toda escritura se hace con un bloqueo de archivo, así dos personas no pueden reservar
+ * Préstamo de activos: catálogo de activos prestables y reservas, guardados en MySQL.
+ *   tabla «pres_activos»   catálogo (lo administra TI)
+ *   tabla «pres_reservas»  reservas, entregas y devoluciones
+ *   tabla «pres_pdf»       comprobantes y actas en PDF generados en cada evento
+ * Toda escritura se hace con un bloqueo y una transacción, así dos personas no pueden reservar
  * el mismo activo para las mismas horas al mismo tiempo.
  */
 declare(strict_types=1);
+require_once __DIR__ . '/db.php';
 
-define('PRES_DIR', getenv('ACTAS_PRES_DIR') ?: '/var/lib/actas/prestamos');
+define('PRES_DIR', getenv('ACTAS_PRES_DIR') ?: '/var/lib/actas/prestamos');   // solo para migrar la versión anterior
 
 const PRES_TIPOS = ['Proyector', 'Computadora portátil', 'Computadora de escritorio', 'Tablet', 'Pantalla o monitor',
                     'Parlante o micrófono', 'Cámara', 'Herramienta', 'Accesorio', 'Otro'];
@@ -34,32 +36,49 @@ const PRES_VERIF_DEVOL = [
     'Se borraron archivos o sesiones del solicitante (si aplica)',
 ];
 
-function pres_archivo(string $n): string { return PRES_DIR . '/' . $n . '.json'; }
-
+/** 'activos' o 'reservas' → [id => datos] */
 function pres_leer(string $n): array {
-    $d = json_decode((string)@file_get_contents(pres_archivo($n)), true);
-    return is_array($d) ? $d : [];
+    $t = $n === 'activos' ? 'pres_activos' : 'pres_reservas';
+    $out = [];
+    foreach (db_todas("SELECT id, datos FROM $t ORDER BY id") as $f) { $d = db_dejson($f['datos']); if (is_array($d)) $out[(string)$f['id']] = $d; }
+    return $out;
+}
+function pres_escribir(string $n, array $todos): void {
+    if ($n === 'activos') {
+        $ins = actas_db()->prepare('INSERT INTO pres_activos (id, codigo, tipo, descripcion, activo, datos) VALUES (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE codigo = VALUES(codigo), tipo = VALUES(tipo), descripcion = VALUES(descripcion), activo = VALUES(activo), datos = VALUES(datos)');
+        foreach ($todos as $id => $a) $ins->execute([(string)$id, db_corta($a['codigo'] ?? '', 40), db_corta($a['tipo'] ?? '', 60), db_corta($a['descripcion'] ?? '', 160),
+                                                    ($a['activo'] ?? true) === false ? 0 : 1, db_json($a)]);
+        $t = 'pres_activos';
+    } else {
+        $ins = actas_db()->prepare('INSERT INTO pres_reservas (id, estado, nombre, departamento, inicio, fin, creado, datos) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE estado = VALUES(estado), nombre = VALUES(nombre), departamento = VALUES(departamento), inicio = VALUES(inicio),
+            fin = VALUES(fin), creado = VALUES(creado), datos = VALUES(datos)');
+        foreach ($todos as $id => $r) $ins->execute([(string)$id, db_corta($r['estado'] ?? '', 20), db_corta($r['nombre'] ?? '', 120), db_corta($r['departamento'] ?? '', 120),
+                                                    (int)($r['inicio'] ?? 0), (int)($r['fin'] ?? 0), (int)($r['creado'] ?? 0), db_json($r)]);
+        $t = 'pres_reservas';
+    }
+    $ids = array_map('strval', array_keys($todos));
+    db_q("DELETE FROM $t" . ($ids ? ' WHERE id NOT IN (' . implode(',', array_fill(0, count($ids), '?')) . ')' : ''), $ids);
 }
 
-/** Ejecuta $fn(&$activos, &$reservas) con bloqueo exclusivo y guarda si devuelve true. */
+/** Ejecuta $fn(&$activos, &$reservas) con bloqueo exclusivo y guarda si devuelve algo distinto de false. */
 function pres_transaccion(callable $fn) {
-    if (!is_dir(PRES_DIR)) @mkdir(PRES_DIR, 0770, true);
-    $lk = @fopen(PRES_DIR . '/.bloqueo', 'c');
-    if (!$lk || !flock($lk, LOCK_EX)) throw new RuntimeException('No se pudo bloquear el registro de préstamos.');
+    $lk = db_bloquear('prestamos');
     try {
         $act = pres_leer('activos'); $res = pres_leer('reservas');
+        $antesA = $act; $antesR = $res;
         $r = $fn($act, $res);
         if ($r !== false) {
-            foreach (['activos' => $act, 'reservas' => $res] as $n => $d) {
-                $tmp = PRES_DIR . "/.$n." . bin2hex(random_bytes(5)) . '.tmp';
-                if (@file_put_contents($tmp, json_encode($d, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) === false || !@rename($tmp, pres_archivo($n))) {
-                    @unlink($tmp);
-                    throw new RuntimeException('No se pudo guardar. Revise los permisos de ' . PRES_DIR . '.');
-                }
-            }
+            try {
+                db_tx(function () use ($act, $res, $antesA, $antesR) {
+                    if ($act !== $antesA) pres_escribir('activos', $act);
+                    if ($res !== $antesR) pres_escribir('reservas', $res);
+                });
+            } catch (PDOException $e) { error_log('[actas-tic] préstamos: ' . $e->getMessage()); throw new RuntimeException('No se pudo guardar en la base de datos.'); }
         }
         return $r;
-    } finally { flock($lk, LOCK_UN); fclose($lk); }
+    } finally { db_desbloquear($lk); }
 }
 
 /** Recorta a $max caracteres sin depender de mbstring. */
